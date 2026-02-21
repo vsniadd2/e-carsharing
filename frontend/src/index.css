@@ -592,7 +592,7 @@ body {
 
 /* Окно согласия на cookie (как в 1.txt) */
 .cookie-consent-card {
-  width: 300px;
+  width: min(420px, 100%);
   min-height: 220px;
   background-color: rgb(255, 255, 255);
   border-radius: 8px;

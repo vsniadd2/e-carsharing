@@ -34,7 +34,7 @@ export default function CookieConsent() {
   if (!visible) return null
 
   return (
-    <div className="fixed bottom-6 right-6 z-[9999]" role="dialog" aria-label="Согласие на cookie">
+    <div className="fixed inset-0 z-[9999] flex items-end justify-center pb-8 px-4" role="dialog" aria-label="Согласие на cookie">
       <div className="cookie-consent-card">
         <CookieSvg />
         <p className="cookie-consent-heading">Мы используем cookie</p>
