@@ -7,7 +7,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
 
   if (!isReady) {
     return (
-      <div className="min-h-screen bg-white dark:bg-black flex items-center justify-center">
+      <div className="min-h-dvh bg-white dark:bg-black flex items-center justify-center px-4">
         <div className="dot-spinner">
           <div className="dot-spinner__dot" />
           <div className="dot-spinner__dot" />

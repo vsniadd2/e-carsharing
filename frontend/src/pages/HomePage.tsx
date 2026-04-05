@@ -1,5 +1,4 @@
 import { Link } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
 import { useRef, useState, useEffect } from 'react'
 import heroImage from '@img/cattouchret.png'
 
@@ -68,7 +67,6 @@ function AnimatedStat({
 }
 
 export default function HomePage() {
-  const { user, logout } = useAuth()
   const statsInView = useInView({ once: true })
   const heroRef = useRef<HTMLElement>(null)
   const rewardsRef = useRef<HTMLElement>(null)
@@ -102,75 +100,35 @@ export default function HomePage() {
   }, [])
 
   return (
-    <div className="bg-white dark:bg-black text-slate-900 dark:text-slate-100 font-display min-h-screen flex flex-col overflow-x-hidden">
-      <header className="sticky top-0 z-50 w-full border-b border-slate-200/80 dark:border-slate-800 bg-white/90 dark:bg-black/90 backdrop-blur-lg">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex h-20 items-center justify-between gap-6">
-            <Link to="/" className="flex items-center gap-2.5 shrink-0 focus:outline-none focus-visible:ring-0">
-              <div className="flex items-center justify-center size-10 rounded-xl bg-black dark:bg-white text-white dark:text-black shadow-sm">
-                <span className="material-symbols-outlined text-[24px]">electric_scooter</span>
-              </div>
-              <span className="text-xl font-bold tracking-tight text-black dark:text-white">EcoRide</span>
-            </Link>
-            <nav className="hidden md:flex items-center gap-8">
-              <Link to="/map" className="text-base font-medium py-2.5 text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white transition-colors">Карта</Link>
-              <Link to="/tariffs" className="text-base font-medium py-2.5 text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white transition-colors">Тарифы</Link>
-              <Link to="/rewards" className="text-base font-medium py-2.5 text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white transition-colors">Награды</Link>
-              <Link to="/support" className="text-base font-medium py-2.5 text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white transition-colors">Поддержка</Link>
-            </nav>
-            <div className="flex items-center gap-4 shrink-0">
-              {user ? (
-                <>
-                  <Link to="/dashboard" className="hidden sm:inline-flex text-base font-medium py-3 px-2 text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white transition-colors focus:outline-none focus-visible:ring-0">
-                    {user.name || user.email}
-                  </Link>
-                  <button type="button" onClick={() => logout()} className="hidden sm:inline-flex text-base font-medium py-3 px-4 rounded-xl text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors focus:outline-none focus-visible:ring-0">
-                    Выйти
-                  </button>
-                </>
-              ) : (
-                <div className="hidden sm:flex items-center gap-1 rounded-xl overflow-hidden focus-within:ring-0">
-                  <Link to="/register" className="px-6 py-3.5 text-base font-medium text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors rounded-l-xl focus:outline-none focus-visible:ring-0">
-                    Регистрация
-                  </Link>
-                  <Link to="/login" className="px-6 py-3.5 text-base font-medium text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors rounded-r-xl focus:outline-none focus-visible:ring-0">
-                    Войти
-                  </Link>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
-
+    <div className="bg-white dark:bg-black flex w-full min-w-0 flex-col overflow-x-clip">
       <main className="flex-grow">
-        <section ref={heroRef} className={`scroll-reveal ${revealed.hero ? 'is-visible' : ''} relative pt-12 pb-20 lg:pt-24 lg:pb-32 overflow-hidden bg-white dark:bg-black`}>
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-            <div className="grid lg:grid-cols-2 gap-12 items-center">
-              <div className="space-y-8 max-w-2xl">
-                <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.1] text-black dark:text-white">
+        <section ref={heroRef} className={`scroll-reveal ${revealed.hero ? 'is-visible' : ''} relative pt-8 pb-16 sm:pt-12 sm:pb-20 lg:pt-20 lg:pb-28 xl:pt-24 xl:pb-32 overflow-hidden bg-white dark:bg-black`}>
+          <div className="layout-shell relative z-10">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 sm:gap-12 lg:gap-10 xl:gap-14 2xl:gap-16 items-center">
+              <div className="space-y-6 sm:space-y-8 min-w-0 max-w-2xl lg:max-w-none">
+                <h1 className="font-bold tracking-tight leading-[1.08] text-black dark:text-white text-[clamp(2rem,4.2vw+0.75rem,3.75rem)] lg:text-[clamp(2.75rem,3.2vw+1.25rem,4.25rem)] xl:text-[clamp(3rem,2.8vw+1.5rem,4.5rem)]">
                   Город. <br />
                   <span className="text-slate-500">На электротяге.</span>
                 </h1>
-                <p className="text-lg sm:text-xl text-slate-500 max-w-lg leading-relaxed">
+                <p className="text-base sm:text-lg lg:text-xl text-slate-500 max-w-xl lg:max-w-lg leading-relaxed">
                   Арендуйте электросамокаты и велосипеды мгновенно. Ноль выбросов, полная свобода. Присоединяйтесь к экологичной мобильности.
                 </p>
-                <div className="flex flex-col sm:flex-row gap-4">
+                <div className="flex flex-col min-[480px]:flex-row gap-3 sm:gap-4">
                   <Link
                     to="/map"
-                    className="h-14 px-8 rounded-lg bg-black text-white hover:bg-slate-800 dark:bg-white dark:text-black dark:hover:bg-slate-200 text-base font-bold transition-colors flex items-center justify-center gap-2"
+                    className="h-12 sm:h-14 px-6 sm:px-8 rounded-lg bg-black text-white hover:bg-slate-800 dark:bg-white dark:text-black dark:hover:bg-slate-200 text-sm sm:text-base font-bold transition-colors flex items-center justify-center gap-2"
                   >
                     Начать поездку
                     <span className="material-symbols-outlined">arrow_forward</span>
                   </Link>
                   <Link
                     to="/map"
-                    className="h-14 px-8 rounded-lg border border-slate-300 dark:border-slate-800 hover:border-black dark:hover:border-white text-base font-medium transition-colors flex items-center justify-center gap-2"
+                    className="h-12 sm:h-14 px-6 sm:px-8 rounded-lg border border-slate-300 dark:border-slate-800 hover:border-black dark:hover:border-white text-sm sm:text-base font-medium transition-colors flex items-center justify-center gap-2"
                   >
                     Смотреть карту
                   </Link>
                 </div>
-                <div className="pt-8 flex items-center gap-6 text-sm text-slate-500">
+                <div className="pt-6 sm:pt-8 flex flex-col min-[400px]:flex-row min-[400px]:items-center gap-3 min-[400px]:gap-6 text-sm text-slate-500">
                   <div className="flex items-center gap-2">
                     <span className="material-symbols-outlined text-black dark:text-white text-[20px]">check_circle</span>
                     <span>Углеродно-нейтрально</span>
@@ -181,15 +139,16 @@ export default function HomePage() {
                   </div>
                 </div>
               </div>
-              <div className="relative lg:h-[600px] flex items-center justify-center">
-                <div className="absolute inset-0 bg-gradient-to-tr from-slate-200/50 to-transparent dark:from-slate-800/50 rounded-full blur-[100px] opacity-40" />
-                <div className="relative w-full aspect-square max-w-md lg:max-w-full">
+              <div className="relative flex items-center justify-center min-w-0 lg:justify-end">
+                <div className="absolute inset-0 bg-gradient-to-tr from-slate-200/50 to-transparent dark:from-slate-800/50 rounded-full blur-[100px] opacity-40 pointer-events-none lg:left-[-10%] lg:right-[-10%]" />
+                <div className="relative w-full max-w-[min(100%,420px)] sm:max-w-[min(100%,460px)] lg:max-w-[min(100%,min(52vw,520px))] xl:max-w-[500px] 2xl:max-w-[540px] mx-auto lg:mx-0">
+                  <div className="relative w-full aspect-[4/5] sm:aspect-[3/4] lg:aspect-[5/6] xl:aspect-[4/5] max-h-[min(68vh,560px)] lg:max-h-[min(62vh,600px)] xl:max-h-[min(58vh,620px)]">
                   <img
                     alt="Электромобиль в природном ландшафте"
-                    className="w-full h-full object-cover rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800"
+                    className="absolute inset-0 w-full h-full object-cover rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800"
                     src={heroImage}
                   />
-                  <div className="absolute -bottom-6 -left-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-xl shadow-xl max-w-[200px]">
+                  <div className="absolute -bottom-3 left-2 sm:-bottom-4 sm:left-3 lg:-bottom-5 lg:left-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 sm:p-4 rounded-xl shadow-xl max-w-[min(200px,85vw)] z-10">
                     <div className="flex items-center gap-3 mb-2">
                       <div className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-black dark:text-white">
                         <span className="material-symbols-outlined text-sm">battery_charging_full</span>
@@ -199,6 +158,7 @@ export default function HomePage() {
                     <div className="text-2xl font-bold">212 км</div>
                     <div className="text-xs text-slate-500">На полном заряде</div>
                   </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -206,8 +166,8 @@ export default function HomePage() {
         </section>
 
         <section ref={statsInView.ref} className={`scroll-reveal ${statsInView.isInView ? 'is-visible' : ''} border-y border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900`}>
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+          <div className="layout-shell py-8 sm:py-10">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-8 text-center">
               <div>
                 <AnimatedStat trigger={statsInView.isInView} target={2.5} suffix="M+" label="Поездок" />
               </div>
@@ -224,8 +184,8 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section id="rewards" ref={rewardsRef} className={`scroll-reveal ${revealed.rewards ? 'is-visible' : ''} py-24 relative overflow-hidden bg-white dark:bg-black`}>
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section id="rewards" ref={rewardsRef} className={`scroll-reveal ${revealed.rewards ? 'is-visible' : ''} py-16 sm:py-24 relative overflow-hidden bg-white dark:bg-black`}>
+          <div className="layout-shell">
             <div className="flex flex-col md:flex-row md:items-end justify-between mb-16 gap-6">
               <div className="max-w-2xl">
                 <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4 text-black dark:text-white">Ездите экологично — получайте баллы</h2>
@@ -236,13 +196,13 @@ export default function HomePage() {
                 <span className="material-symbols-outlined text-sm">arrow_forward</span>
               </Link>
             </div>
-            <div className="grid md:grid-cols-3 gap-6">
+            <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6">
               {[
                 { icon: 'currency_bitcoin', title: 'Зарабатывайте кредиты', text: 'Кредиты на кошелёк за каждые 10 км на экопарке.' },
                 { icon: 'forest', title: 'Посадка деревьев', text: 'Можно отдавать баллы: мы сажаем дерево за каждые 50 км.' },
                 { icon: 'diamond', title: 'Бонусы', text: 'Доступ к особым ТС, бронирование и приоритетная поддержка.' },
               ].map((card) => (
-                <div key={card.icon} className="group bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-black dark:hover:border-white rounded-xl p-8 transition-all">
+                <div key={card.icon} className="group bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-black dark:hover:border-white rounded-xl p-6 sm:p-8 transition-all">
                   <div className="w-12 h-12 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-black dark:text-white mb-6 group-hover:bg-black group-hover:text-white dark:group-hover:bg-white dark:group-hover:text-black transition-colors">
                     <span className="material-symbols-outlined">{card.icon}</span>
                   </div>
@@ -254,17 +214,37 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section ref={routesRef} className={`scroll-reveal ${revealed.routes ? 'is-visible' : ''} py-24 bg-slate-50 dark:bg-slate-900/30`}>
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section ref={routesRef} className={`scroll-reveal ${revealed.routes ? 'is-visible' : ''} py-16 sm:py-24 bg-slate-50 dark:bg-slate-900/30`}>
+          <div className="layout-shell">
             <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-12 text-black dark:text-white">Маршруты по Минску</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {[
-                { title: 'Проспект Независимости', time: '25 мин', km: '5 км', img: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d1/Minsk_Landscape.jpg/800px-Minsk_Landscape.jpg' },
-                { title: 'Парк Победы и Комсомольское озеро', time: '40 мин', km: '7.5 км', img: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/Belarus-Minsk-City_Hall-2.jpg/800px-Belarus-Minsk-City_Hall-2.jpg' },
-                { title: 'Национальная библиотека — Лошица', time: '55 мин', km: '11 км', img: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c0/Belarus_Minsk_city_gates_at_night.jpg/800px-Belarus_Minsk_city_gates_at_night.jpg' },
+                {
+                  title: 'Проспект Независимости',
+                  time: '25 мин',
+                  km: '5 км',
+                  img: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=800&q=80',
+                },
+                {
+                  title: 'Парк Победы и Комсомольское озеро',
+                  time: '40 мин',
+                  km: '7.5 км',
+                  img: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&q=80',
+                },
+                {
+                  title: 'Национальная библиотека — Лошица',
+                  time: '55 мин',
+                  km: '11 км',
+                  img: 'https://images.unsplash.com/photo-1593941707882-a5bba14938c7?w=800&q=80',
+                },
               ].map((route) => (
                 <div key={route.title} className="group relative rounded-xl overflow-hidden aspect-[4/3] cursor-pointer">
-                  <img alt={route.title} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" src={route.img} />
+                  <img
+                    alt={route.title}
+                    loading="lazy"
+                    className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    src={route.img}
+                  />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
                   <div className="absolute bottom-0 left-0 p-6 w-full">
                     <div className="flex justify-between items-end">
@@ -288,13 +268,13 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section ref={ctaRef} className={`scroll-reveal ${revealed.cta ? 'is-visible' : ''} py-24 bg-white dark:bg-black`}>
-          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <div className="bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-12 relative overflow-hidden">
+        <section ref={ctaRef} className={`scroll-reveal ${revealed.cta ? 'is-visible' : ''} py-16 sm:py-24 bg-white dark:bg-black`}>
+          <div className="layout-shell text-center">
+            <div className="bg-slate-100 dark:bg-slate-900 border-y sm:border border-slate-200 dark:border-slate-800 sm:rounded-2xl p-6 sm:p-10 lg:p-12 relative overflow-hidden max-w-4xl mx-auto">
               <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-slate-300/20 dark:bg-white/5 blur-[100px] rounded-full pointer-events-none" />
               <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-64 h-64 bg-slate-300/20 dark:bg-white/5 blur-[100px] rounded-full pointer-events-none" />
-              <h2 className="text-3xl sm:text-5xl font-bold mb-6 text-black dark:text-white">Готовы поехать?</h2>
-              <p className="text-slate-500 text-lg mb-8 max-w-xl mx-auto">Найдите транспорт рядом и начните исследовать город по-новому.</p>
+              <h2 className="text-2xl min-[400px]:text-3xl sm:text-5xl font-bold mb-4 sm:mb-6 text-black dark:text-white">Готовы поехать?</h2>
+              <p className="text-slate-500 text-base sm:text-lg mb-6 sm:mb-8 max-w-xl mx-auto px-1">Найдите транспорт рядом и начните исследовать город по-новому.</p>
               <div className="flex justify-center">
                 <Link to="/map" className="h-12 px-8 rounded-lg bg-black hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-200 text-white dark:text-black font-bold transition-colors flex items-center justify-center gap-2">
                   Let&apos;s go
@@ -306,9 +286,9 @@ export default function HomePage() {
         </section>
       </main>
 
-      <footer id="support" ref={footerRef} className={`scroll-reveal ${revealed.footer ? 'is-visible' : ''} border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-black py-12`}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
+      <footer id="support" ref={footerRef} className={`scroll-reveal ${revealed.footer ? 'is-visible' : ''} border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-black py-10 sm:py-12 pb-[max(2.5rem,env(safe-area-inset-bottom))]`}>
+        <div className="layout-shell">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8 mb-10 sm:mb-12">
             <div>
               <h4 className="text-black dark:text-white font-bold mb-4">Компания</h4>
               <ul className="space-y-2 text-sm text-slate-500">

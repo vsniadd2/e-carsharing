@@ -3,6 +3,18 @@
 @theme {
   --font-display: "Space Grotesk", sans-serif;
   --font-body: "Noto Sans", sans-serif;
+  /* Экраны входа/регистрации (отдельная палитра), префикс eco-auth — не путать с primary сайта */
+  --font-eco-auth-body: "Manrope", system-ui, sans-serif;
+  --color-eco-auth-surface: #131313;
+  --color-eco-auth-primary: #e0e0e0;
+  --color-eco-auth-on-primary: #2f3131;
+  --color-eco-auth-secondary: #bfc7cf;
+  --color-eco-auth-on-surface: #e5e2e1;
+  --color-eco-auth-on-surface-variant: #c4c7ca;
+  --color-eco-auth-container-highest: #353534;
+  --color-eco-auth-outline-variant: #44474a;
+  --color-eco-auth-tertiary: #ffd9b8;
+  --color-eco-auth-on-tertiary-container: #794400;
   --color-primary: #000000;
   --color-primary-foreground: #ffffff;
   --color-background-light: #ffffff;
@@ -23,6 +35,13 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Корень: колонка для flex-1 у лейаута; без фиксированной высоты — длинные страницы растут и скроллятся нормально */
+#root {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .font-display {
   font-family: var(--font-display), sans-serif;
 }
@@ -31,9 +50,117 @@
   font-family: var(--font-body), system-ui, sans-serif;
 }
 
+.eco-auth-glass {
+  background: rgba(28, 27, 27, 0.6);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+}
+
+.eco-auth-active-scale:active {
+  transform: scale(0.98);
+}
+
+.eco-auth-shell .material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+html {
+  overflow-x: clip;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/**
+ * Полная ширина родителя + safe-area по бокам.
+ * Не задаём max-width: 100%, иначе ломаются max-w-md / max-w-7xl на том же элементе.
+ */
+.page-bleed {
+  box-sizing: border-box;
+  width: 100%;
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/**
+ * Контентная колонка: ограничение ширины на больших/широких экранах (16:10, ультраширокие),
+ * комфортные поля + safe-area. Не задавать max-width на том же элементе, что и max-w-* Tailwind.
+ */
+.layout-shell {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 88rem;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
+}
+
+@media (min-width: 640px) {
+  .layout-shell {
+    padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
+  }
+}
+
+@media (min-width: 1024px) {
+  .layout-shell {
+    padding-left: max(1.75rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1.75rem, env(safe-area-inset-right, 0px));
+  }
+}
+
+@media (min-width: 1280px) {
+  .layout-shell {
+    padding-left: max(2rem, env(safe-area-inset-left, 0px));
+    padding-right: max(2rem, env(safe-area-inset-right, 0px));
+  }
+}
+
+@media (min-width: 1536px) {
+  .layout-shell {
+    max-width: 96rem;
+  }
+}
+
+/* Формы входа/регистрации: те же отступы, что у layout-shell, ширина как max-w-md */
+.layout-shell.layout-shell--form {
+  max-width: 28rem;
+}
+
+/**
+ * Только горизонтальные поля (как у layout-shell), без max-width — оверлеи карты и т.п.
+ */
+.layout-safe-x {
+  box-sizing: border-box;
+  width: 100%;
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
+}
+
+@media (min-width: 640px) {
+  .layout-safe-x {
+    padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
+  }
+}
+
+@media (min-width: 1024px) {
+  .layout-safe-x {
+    padding-left: max(1.75rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1.75rem, env(safe-area-inset-right, 0px));
+  }
+}
+
+@media (min-width: 1280px) {
+  .layout-safe-x {
+    padding-left: max(2rem, env(safe-area-inset-left, 0px));
+    padding-right: max(2rem, env(safe-area-inset-right, 0px));
+  }
 }
 
 .img-grayscale {
@@ -189,7 +316,7 @@ body {
   }
 }
 
-/* Карточка погоды (дизайн из 1.txt) */
+/* Карточка погоды (оверлей карты) */
 .weather-card {
   width: 100%;
   max-width: 260px;
@@ -372,7 +499,7 @@ body {
 .scroll-reveal-delay-5 { transition-delay: 0.5s; }
 .scroll-reveal-delay-6 { transition-delay: 0.6s; }
 
-/* Формы авторизации/регистрации (как в 1.txt) */
+/* Формы авторизации/регистрации */
 .auth-form {
   display: flex;
   flex-direction: column;
@@ -590,96 +717,7 @@ body {
   cursor: not-allowed;
 }
 
-/* Окно согласия на cookie (как в 1.txt) */
-.cookie-consent-card {
-  width: min(420px, 100%);
-  min-height: 220px;
-  background-color: rgb(255, 255, 255);
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 20px 30px;
-  gap: 13px;
-  position: relative;
-  overflow: hidden;
-  box-shadow: 2px 2px 20px rgba(0, 0, 0, 0.062);
-}
-
-.cookie-consent-card .cookie-svg {
-  width: 50px;
-  flex-shrink: 0;
-}
-
-.cookie-consent-card .cookie-svg path {
-  fill: rgb(97, 81, 81);
-}
-
-.cookie-consent-heading {
-  font-size: 1.2em;
-  font-weight: 800;
-  color: rgb(26, 26, 26);
-}
-
-.cookie-consent-description {
-  text-align: center;
-  font-size: 0.7em;
-  font-weight: 600;
-  color: rgb(99, 99, 99);
-}
-
-.cookie-consent-description a {
-  color: rgb(59, 130, 246);
-}
-
-.cookie-consent-description a:hover {
-  text-decoration: underline;
-}
-
-.cookie-consent-buttons {
-  display: flex;
-  gap: 20px;
-  flex-direction: row;
-}
-
-.cookie-consent-accept {
-  width: 80px;
-  height: 30px;
-  background-color: #7b57ff;
-  transition: all 0.2s ease;
-  border: none;
-  color: rgb(241, 241, 241);
-  cursor: pointer;
-  font-weight: 600;
-  border-radius: 20px;
-  box-shadow: 0 4px 6px -1px #977ef3, 0 2px 4px -1px #977ef3;
-}
-
-.cookie-consent-accept:hover {
-  background-color: #9173ff;
-  box-shadow: 0 10px 15px -3px #977ef3, 0 4px 6px -2px #977ef3;
-}
-
-.cookie-consent-decline {
-  width: 80px;
-  height: 30px;
-  background-color: #dadada;
-  transition: all 0.2s ease;
-  color: rgb(46, 46, 46);
-  border: none;
-  cursor: pointer;
-  font-weight: 600;
-  border-radius: 20px;
-  box-shadow: 0 4px 6px -1px #bebdbd, 0 2px 4px -1px #bebdbd;
-}
-
-.cookie-consent-decline:hover {
-  background-color: #ebebeb;
-  box-shadow: 0 10px 15px -3px #bebdbd, 0 4px 6px -2px #bebdbd;
-}
-
-/* Страница тарифов (стиль VoltDrive из 1.txt) */
+/* Страница тарифов (стиль VoltDrive) */
 .glass-effect {
   backdrop-filter: blur(12px);
   background-color: rgba(15, 35, 23, 0.85);

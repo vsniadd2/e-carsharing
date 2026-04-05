@@ -2,28 +2,19 @@ import { Link } from 'react-router-dom'
 
 export default function SupportPage() {
   return (
-    <div className="min-h-screen bg-white dark:bg-black text-slate-900 dark:text-slate-100">
-      <header className="sticky top-0 z-50 w-full border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-black/90 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex h-14 items-center justify-between">
-            <Link to="/" className="flex items-center gap-2 text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white transition-colors">
-              <span className="material-symbols-outlined">arrow_back</span>
-              На главную
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <h1 className="text-3xl font-bold tracking-tight mb-6 text-black dark:text-white">Поддержка</h1>
-        <p className="text-slate-600 dark:text-slate-400 leading-relaxed mb-8">
+    <div className="bg-white dark:bg-black flex w-full min-w-0 flex-col overflow-x-clip">
+      <main className="layout-shell py-8 sm:py-12 w-full min-w-0">
+        <h1 className="text-[clamp(1.75rem,3vw+0.5rem,2.25rem)] font-bold tracking-tight mb-4 sm:mb-6 text-black dark:text-white">
+          Поддержка
+        </h1>
+        <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 leading-relaxed mb-6 sm:mb-8 max-w-2xl">
           Мы на связи и готовы помочь с арендой, оплатой и любыми вопросами. Поддержка работает ежедневно.
         </p>
 
-        <div className="space-y-4">
+        <div className="space-y-3 sm:space-y-4 max-w-2xl">
           <Link
             to="/help"
-            className="block p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-black dark:hover:border-white transition-colors"
+            className="block p-4 sm:p-5 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-black dark:hover:border-white transition-colors active:scale-[0.99]"
           >
             <span className="font-medium text-black dark:text-white">Помощь</span>
             <p className="text-sm text-slate-500 mt-1">Ответы на частые вопросы и инструкции</p>

@@ -1,0 +1,8 @@
+.env
+**/bin/
+**/obj/
+**/.vs/
+*.user
+
+# Случайный npm install в корне репозитория (зависимости только в frontend/)
+/node_modules/

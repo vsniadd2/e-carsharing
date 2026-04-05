@@ -106,30 +106,24 @@ export default function ContentPage() {
 
   if (!page) {
     return (
-      <div className="min-h-screen bg-white dark:bg-black text-slate-900 dark:text-slate-100 flex items-center justify-center p-4">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-4">Страница не найдена</h1>
-          <Link to="/" className="text-slate-500 hover:text-black dark:hover:text-white">На главную</Link>
+      <div className="flex w-full min-w-0 min-h-dvh items-center justify-center bg-white dark:bg-black text-slate-900 dark:text-slate-100 px-4">
+        <div className="layout-shell text-center max-w-lg">
+          <h1 className="text-[clamp(1.5rem,4vw,2rem)] font-bold mb-4">Страница не найдена</h1>
+          <Link to="/" className="text-slate-500 hover:text-black dark:hover:text-white text-sm sm:text-base inline-block">
+            На главную
+          </Link>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-black text-slate-900 dark:text-slate-100">
-      <header className="sticky top-0 z-50 w-full border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-black/90 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex h-14 items-center justify-between">
-            <Link to="/" className="flex items-center gap-2 text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white transition-colors">
-              <span className="material-symbols-outlined">arrow_back</span>
-              На главную
-            </Link>
-          </div>
-        </div>
-      </header>
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <h1 className="text-3xl font-bold text-black dark:text-white mb-8">{page.title}</h1>
-        <div className="space-y-4 text-slate-600 dark:text-slate-400 leading-relaxed">
+    <div className="bg-white dark:bg-black flex w-full min-w-0 flex-col overflow-x-clip">
+      <main className="layout-shell py-8 sm:py-12 w-full min-w-0">
+        <h1 className="text-[clamp(1.75rem,3vw+0.5rem,2.25rem)] font-bold text-black dark:text-white mb-6 sm:mb-8">
+          {page.title}
+        </h1>
+        <div className="space-y-4 text-sm sm:text-base text-slate-600 dark:text-slate-400 leading-relaxed max-w-3xl">
           {page.content.map((paragraph, i) => (
             <p key={i}>{paragraph}</p>
           ))}

@@ -1,9 +1,20 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
 import type { User } from '../api/auth';
-import { login as apiLogin, register as apiRegister } from '../api/auth';
+import {
+  login as apiLogin,
+  register as apiRegister,
+  refreshSession,
+  logoutRemote,
+  isJwtExpired,
+} from '../api/auth';
+import { fetchMe } from '../api/fleet';
+import { tryRegisterPushForEcoRide } from '../lib/pushSetup';
 
-const TOKEN_KEY = 'ecoride_token';
+const ACCESS_KEY = 'ecoride_access_token';
+const REFRESH_KEY = 'ecoride_refresh_token';
 const USER_KEY = 'ecoride_user';
+/** Старый ключ до пары access/refresh — очищаем при загрузке. */
+const LEGACY_TOKEN_KEY = 'ecoride_token';
 
 type AuthContextType = {
   user: User | null;
@@ -11,18 +22,44 @@ type AuthContextType = {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, name?: string) => Promise<void>;
   logout: () => void;
+  refreshProfile: () => Promise<void>;
   isReady: boolean;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-function loadStored() {
+function persistSession(access: string, refresh: string, user: User) {
+  localStorage.setItem(ACCESS_KEY, access);
+  localStorage.setItem(REFRESH_KEY, refresh);
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
+}
+
+function clearSessionStorage() {
+  localStorage.removeItem(ACCESS_KEY);
+  localStorage.removeItem(REFRESH_KEY);
+  localStorage.removeItem(USER_KEY);
+  localStorage.removeItem(LEGACY_TOKEN_KEY);
+}
+
+function loadStored(): { token: string | null; refreshToken: string | null; user: User | null } {
   try {
-    const t = localStorage.getItem(TOKEN_KEY);
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
+    const access = localStorage.getItem(ACCESS_KEY);
+    const refresh = localStorage.getItem(REFRESH_KEY);
     const u = localStorage.getItem(USER_KEY);
-    if (t && u) return { token: t, user: JSON.parse(u) as User };
-  } catch (_) {}
-  return { token: null, user: null };
+    if (u) {
+      const user = JSON.parse(u) as User;
+      if (typeof user.balance !== 'number') user.balance = 0;
+      if (access && refresh) return { token: access, refreshToken: refresh, user };
+      if (access && !refresh) {
+        clearSessionStorage();
+        return { token: null, refreshToken: null, user: null };
+      }
+    }
+  } catch (_) {
+    clearSessionStorage();
+  }
+  return { token: null, refreshToken: null, user: null };
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -37,31 +74,74 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsReady(true);
   }, []);
 
+  useEffect(() => {
+    if (!isReady) return;
+    const refresh = localStorage.getItem(REFRESH_KEY);
+    const access = localStorage.getItem(ACCESS_KEY);
+    if (!refresh) return;
+    if (access && !isJwtExpired(access)) return;
+
+    let cancelled = false;
+    void refreshSession(refresh)
+      .then((auth) => {
+        if (cancelled) return;
+        persistSession(auth.accessToken, auth.refreshToken, auth.user);
+        setToken(auth.accessToken);
+        setUser(auth.user);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        clearSessionStorage();
+        setToken(null);
+        setUser(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isReady]);
+
+  useEffect(() => {
+    if (!isReady || !token || !user) return;
+    void tryRegisterPushForEcoRide(token).catch(() => {});
+  }, [isReady, token, user?.id]);
+
+  const refreshProfile = useCallback(async () => {
+    const t = localStorage.getItem(ACCESS_KEY);
+    if (!t) return;
+    try {
+      const u = await fetchMe(t);
+      setUser(u);
+      const r = localStorage.getItem(REFRESH_KEY);
+      if (r) persistSession(t, r, u);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const login = useCallback(async (email: string, password: string) => {
-    const { token: t, user: u } = await apiLogin(email, password);
-    localStorage.setItem(TOKEN_KEY, t);
-    localStorage.setItem(USER_KEY, JSON.stringify(u));
-    setToken(t);
-    setUser(u);
+    const auth = await apiLogin(email, password);
+    persistSession(auth.accessToken, auth.refreshToken, auth.user);
+    setToken(auth.accessToken);
+    setUser(auth.user);
   }, []);
 
   const register = useCallback(async (email: string, password: string, name?: string) => {
-    const { token: t, user: u } = await apiRegister(email, password, name);
-    localStorage.setItem(TOKEN_KEY, t);
-    localStorage.setItem(USER_KEY, JSON.stringify(u));
-    setToken(t);
-    setUser(u);
+    const auth = await apiRegister(email, password, name);
+    persistSession(auth.accessToken, auth.refreshToken, auth.user);
+    setToken(auth.accessToken);
+    setUser(auth.user);
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
+    const r = localStorage.getItem(REFRESH_KEY);
+    if (r) void logoutRemote(r).catch(() => {});
+    clearSessionStorage();
     setToken(null);
     setUser(null);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, token, login, register, logout, isReady }}>
+    <AuthContext.Provider value={{ user, token, login, register, logout, refreshProfile, isReady }}>
       {children}
     </AuthContext.Provider>
   );

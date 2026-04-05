@@ -1,29 +1,87 @@
-import { Link, useNavigate } from 'react-router-dom'
-import { useState } from 'react'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
+import { useState, useEffect, useRef } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../context/AuthContext'
-
-const RIDES = [
-  { vehicle: 'E-Scooter S2', icon: 'electric_scooter', date: '24 окт 2023 • 14:30', from: 'Central St.', to: 'Tech Park', duration: '12 мин', cost: '14.40 BYN', status: 'Completed', statusClass: 'bg-neutral-200 text-black border-neutral-300' },
-  { vehicle: 'E-Bike X4', icon: 'pedal_bike', date: '22 окт 2023 • 09:15', from: 'Metro Station', to: 'Library', duration: '28 мин', cost: '26.24 BYN', status: 'Completed', statusClass: 'bg-neutral-200 text-black border-neutral-300' },
-  { vehicle: 'E-Scooter S2', icon: 'electric_scooter', date: '20 окт 2023 • 18:45', from: 'Gym', to: 'Home', duration: '8 мин', cost: '9.92 BYN', status: 'Refunded', statusClass: 'bg-neutral-800 text-neutral-400 border-neutral-700' },
-]
+import { depositWallet, fetchRentalHistory, fetchWalletLedger } from '../api/fleet'
 
 export default function DashboardPage() {
   const [searchRides, setSearchRides] = useState('')
-  const { user, logout } = useAuth()
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [depositAmount, setDepositAmount] = useState('25')
+  const walletRef = useRef<HTMLDivElement>(null)
+  const { user, logout, token, refreshProfile } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    void refreshProfile()
+  }, [refreshProfile])
+
+  useEffect(() => {
+    const st = location.state as { walletHighlight?: boolean } | null
+    if (!st?.walletHighlight) return
+    const id = requestAnimationFrame(() => {
+      walletRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      navigate(location.pathname, { replace: true, state: {} })
+    })
+    return () => cancelAnimationFrame(id)
+  }, [location.pathname, location.state, navigate])
+
+  const { data: history = [] } = useQuery({
+    queryKey: ['rental', 'history', token],
+    queryFn: () => fetchRentalHistory(token!),
+    enabled: Boolean(token),
+    staleTime: 60_000,
+  })
+
+  const { data: ledger = [] } = useQuery({
+    queryKey: ['wallet', 'ledger', token],
+    queryFn: () => fetchWalletLedger(token!, 15),
+    enabled: Boolean(token),
+    staleTime: 30_000,
+  })
+
+  const depositMut = useMutation({
+    mutationFn: (amount: number) => depositWallet(token!, amount),
+    onSuccess: async () => {
+      await refreshProfile()
+      await queryClient.invalidateQueries({ queryKey: ['rental'] })
+      await queryClient.invalidateQueries({ queryKey: ['wallet', 'ledger'] })
+    },
+  })
+
+  const filteredHistory = history.filter((h) => {
+    const q = searchRides.trim().toLowerCase()
+    if (!q) return true
+    return h.vehicleName.toLowerCase().includes(q)
+  })
 
   const handleLogout = () => {
     logout()
     navigate('/', { replace: true })
   }
 
+  const closeMobileNav = () => setMobileNavOpen(false)
+
   return (
-    <div className="bg-black text-slate-100 font-body antialiased min-h-screen flex overflow-hidden">
-      <aside className="w-64 bg-black border-r border-[#262626] flex-col hidden lg:flex shrink-0 h-screen sticky top-0">
-        <div className="flex flex-col h-full p-4 justify-between">
+    <div className="bg-black text-slate-100 font-body antialiased flex-1 min-h-0 flex overflow-hidden w-full relative">
+      {mobileNavOpen && (
+        <button
+          type="button"
+          className="fixed inset-0 z-[55] bg-black/60 lg:hidden"
+          aria-label="Закрыть меню"
+          onClick={closeMobileNav}
+        />
+      )}
+      <aside
+        className={`fixed lg:relative z-[60] top-0 bottom-0 left-0 w-64 max-w-[min(16rem,88vw)] bg-black border-r border-[#262626] flex flex-col shrink-0 min-h-0 h-full self-stretch transition-transform duration-300 ease-out ${
+          mobileNavOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        }`}
+      >
+        <div className="flex flex-col h-full p-4 justify-between pt-[max(1rem,env(safe-area-inset-top,0px))] lg:pt-4">
           <div className="flex flex-col gap-8">
-            <Link to="/" className="flex items-center gap-3 px-2">
+            <Link to="/" onClick={closeMobileNav} className="flex items-center gap-3 px-2">
               <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center text-black font-bold text-xl">EV</div>
               <div>
                 <h1 className="text-white font-display font-bold text-lg leading-tight">EV Rentals</h1>
@@ -31,11 +89,11 @@ export default function DashboardPage() {
               </div>
             </Link>
             <nav className="flex flex-col gap-2">
-              <Link to="/dashboard" className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white text-black group transition-colors">
+              <Link to="/dashboard" onClick={closeMobileNav} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white text-black group transition-colors">
                 <span className="material-symbols-outlined">dashboard</span>
                 <span className="font-display font-medium text-sm">Дашборд</span>
               </Link>
-              <Link to="/map" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors group">
+              <Link to="/map" onClick={closeMobileNav} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors group">
                 <span className="material-symbols-outlined group-hover:text-white transition-colors">map</span>
                 <span className="font-display font-medium text-sm">Карта</span>
               </Link>
@@ -47,7 +105,7 @@ export default function DashboardPage() {
                 <span className="material-symbols-outlined group-hover:text-white transition-colors">history</span>
                 <span className="font-display font-medium text-sm">История поездок</span>
               </a>
-              <Link to="/rewards" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors group">
+              <Link to="/rewards" onClick={closeMobileNav} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors group">
                 <span className="material-symbols-outlined group-hover:text-white transition-colors">redeem</span>
                 <span className="font-display font-medium text-sm">Награды</span>
               </Link>
@@ -81,34 +139,118 @@ export default function DashboardPage() {
         </div>
       </aside>
 
-      <main className="flex-1 h-screen overflow-y-auto w-full relative bg-neutral-950">
-        <div className="max-w-[1400px] mx-auto p-4 md:p-8 flex flex-col gap-6">
-          <div className="flex lg:hidden items-center justify-between mb-4">
-            <Link to="/" className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-black font-bold">EV</div>
-              <span className="text-white font-display font-bold">EV Rentals</span>
+      <main className="flex-1 min-h-0 h-full overflow-y-auto w-full relative bg-neutral-950">
+        <div className="layout-shell py-4 md:py-8 flex flex-col gap-6 min-w-0">
+          <div className="flex lg:hidden items-center justify-between mb-2 pt-[env(safe-area-inset-top,0px)] gap-2">
+            <Link to="/" onClick={closeMobileNav} className="flex items-center gap-2 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-black font-bold shrink-0">EV</div>
+              <span className="text-white font-display font-bold truncate">EV Rentals</span>
             </Link>
-            <button type="button" className="text-white p-2">
-              <span className="material-symbols-outlined">menu</span>
+            <button
+              type="button"
+              className="text-white p-2 rounded-lg hover:bg-neutral-800 shrink-0"
+              aria-expanded={mobileNavOpen}
+              aria-label={mobileNavOpen ? 'Закрыть меню' : 'Открыть меню'}
+              onClick={() => setMobileNavOpen((o) => !o)}
+            >
+              <span className="material-symbols-outlined">{mobileNavOpen ? 'close' : 'menu'}</span>
             </button>
           </div>
 
-          <header className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-            <div>
-              <h2 className="text-3xl md:text-4xl font-display font-bold text-white tracking-tight">Дашборд</h2>
-              <p className="text-neutral-400 mt-1 font-body">Обзор эковлияния и наград.</p>
+          <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 min-w-0">
+            <div className="min-w-0">
+              <h2 className="text-[clamp(1.5rem,3vw+0.75rem,2.25rem)] md:text-4xl font-display font-bold text-white tracking-tight">
+                Дашборд
+              </h2>
+              <p className="text-neutral-400 mt-1 font-body text-sm sm:text-base">Обзор эковлияния и наград.</p>
             </div>
-            <div className="flex items-center gap-3">
-              <button type="button" className="flex items-center gap-2 px-4 py-2 bg-[#171717] border border-[#262626] hover:border-neutral-500 text-neutral-300 rounded-lg transition-colors font-display text-sm font-medium">
+            <div className="flex flex-wrap items-stretch sm:items-center gap-2 sm:gap-3 w-full md:w-auto md:flex-nowrap shrink-0">
+              <button type="button" className="flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-[#171717] border border-[#262626] hover:border-neutral-500 text-neutral-300 rounded-lg transition-colors font-display text-sm font-medium min-h-[2.5rem]">
                 <span className="material-symbols-outlined text-[20px]">calendar_month</span>
                 Окт 2023
               </button>
-              <Link to="/map" className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-neutral-200 text-black rounded-lg transition-colors font-display text-sm font-medium shadow-[0_0_15px_rgba(255,255,255,0.1)]">
+              <Link to="/map" className="flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-white hover:bg-neutral-200 text-black rounded-lg transition-colors font-display text-sm font-medium shadow-[0_0_15px_rgba(255,255,255,0.1)] min-h-[2.5rem] flex-1 sm:flex-initial min-w-[10rem]">
                 <span className="material-symbols-outlined text-[20px]">add</span>
                 Новая поездка
               </Link>
             </div>
           </header>
+
+          <div
+            id="wallet"
+            ref={walletRef}
+            className="bg-[#171717] border border-[#262626] rounded-2xl p-6 flex flex-col sm:flex-row sm:items-end gap-4 flex-wrap"
+          >
+            <div className="flex-1 min-w-0">
+              <h3 className="text-white font-display font-bold text-lg mb-1">Кошелёк</h3>
+              <p className="text-neutral-400 text-sm mb-2">Демо-пополнение без оплаты</p>
+              <p className="text-3xl font-display font-bold text-white">
+                {(user?.balance ?? 0).toFixed(2)} <span className="text-lg text-neutral-400">BYN</span>
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={depositAmount}
+                onChange={(e) => setDepositAmount(e.target.value)}
+                className="bg-black border border-[#262626] text-white rounded-lg px-3 py-2 w-28 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const n = Number(depositAmount)
+                  if (!Number.isFinite(n) || n <= 0) return
+                  depositMut.mutate(n)
+                }}
+                disabled={depositMut.isPending || !token}
+                className="px-4 py-2 rounded-lg bg-white text-black font-bold text-sm hover:bg-neutral-200 disabled:opacity-50"
+              >
+                {depositMut.isPending ? '…' : 'Пополнить'}
+              </button>
+              <button
+                type="button"
+                onClick={() => depositMut.mutate(25)}
+                disabled={depositMut.isPending || !token}
+                className="px-3 py-2 rounded-lg border border-[#444] text-neutral-300 text-sm hover:border-white"
+              >
+                +25
+              </button>
+              <button
+                type="button"
+                onClick={() => depositMut.mutate(50)}
+                disabled={depositMut.isPending || !token}
+                className="px-3 py-2 rounded-lg border border-[#444] text-neutral-300 text-sm hover:border-white"
+              >
+                +50
+              </button>
+            </div>
+          </div>
+
+          {token ? (
+            <div className="bg-[#171717] border border-[#262626] rounded-2xl p-6">
+              <h3 className="text-white font-display font-bold text-base mb-3">Последние операции</h3>
+              {ledger.length === 0 ? (
+                <p className="text-neutral-500 text-sm">Пока нет проводок</p>
+              ) : (
+                <ul className="divide-y divide-[#262626] text-sm">
+                  {ledger.map((row) => (
+                    <li key={row.id} className="py-2 flex flex-wrap items-baseline justify-between gap-2">
+                      <span className="text-neutral-400">
+                        {new Date(row.createdAt).toLocaleString('ru-RU')} · {row.type}
+                      </span>
+                      <span className={row.amount >= 0 ? 'text-emerald-400 font-medium' : 'text-red-400 font-medium'}>
+                        {row.amount >= 0 ? '+' : ''}
+                        {row.amount.toFixed(2)} BYN
+                      </span>
+                      <span className="w-full text-xs text-neutral-600">Баланс после: {row.balanceAfter.toFixed(2)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : null}
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
             <div className="col-span-1 md:col-span-2 bg-[#171717] border border-[#262626] rounded-2xl p-6 relative overflow-hidden group">
@@ -191,7 +333,7 @@ export default function DashboardPage() {
                 <Link to="/rewards" className="text-white text-sm font-medium hover:text-neutral-300 transition-colors underline decoration-neutral-600 underline-offset-4">Все</Link>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="bg-black border border-[#262626] rounded-xl p-4 flex gap-4 items-center group cursor-pointer hover:border-white/50 transition-colors">
+                <div className="bg-black border border-[#262626] rounded-xl p-4 flex flex-col min-[420px]:flex-row gap-4 items-stretch min-[420px]:items-center group cursor-pointer hover:border-white/50 transition-colors">
                   <div className="w-12 h-12 rounded-full bg-neutral-900 flex items-center justify-center text-white shrink-0 group-hover:bg-white group-hover:text-black transition-colors">
                     <span className="material-symbols-outlined">electric_scooter</span>
                   </div>
@@ -201,7 +343,7 @@ export default function DashboardPage() {
                   </div>
                   <button type="button" className="text-xs font-bold text-white bg-neutral-800 px-3 py-1.5 rounded hover:bg-white hover:text-black transition-colors">ПОЛУЧИТЬ</button>
                 </div>
-                <div className="bg-black border border-[#262626] rounded-xl p-4 flex gap-4 items-center group cursor-pointer hover:border-white/50 transition-colors">
+                <div className="bg-black border border-[#262626] rounded-xl p-4 flex flex-col min-[420px]:flex-row gap-4 items-stretch min-[420px]:items-center group cursor-pointer hover:border-white/50 transition-colors">
                   <div className="w-12 h-12 rounded-full bg-neutral-900 flex items-center justify-center text-white shrink-0 group-hover:bg-white group-hover:text-black transition-colors">
                     <span className="material-symbols-outlined">percent</span>
                   </div>
@@ -214,7 +356,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="col-span-1 md:col-span-2 xl:col-span-3 bg-[#171717] border border-[#262626] rounded-2xl p-6">
+            <div id="history" className="col-span-1 md:col-span-2 xl:col-span-3 bg-[#171717] border border-[#262626] rounded-2xl p-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                 <h3 className="text-xl font-display font-bold text-white">Недавние поездки</h3>
                 <input
@@ -228,43 +370,53 @@ export default function DashboardPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="text-neutral-500 border-b border-[#262626] text-xs uppercase font-display tracking-wider">
-                      <th className="px-4 py-3 font-medium">Транспорт</th>
-                      <th className="px-4 py-3 font-medium">Дата</th>
-                      <th className="px-4 py-3 font-medium">Маршрут</th>
-                      <th className="px-4 py-3 font-medium">Длительность</th>
-                      <th className="px-4 py-3 font-medium text-right">Стоимость</th>
-                      <th className="px-4 py-3 font-medium text-center">Статус</th>
+                    <tr className="text-neutral-500 border-b border-[#262626] text-[10px] sm:text-xs uppercase font-display tracking-wider">
+                      <th className="px-2 sm:px-4 py-2 sm:py-3 font-medium whitespace-nowrap">Транспорт</th>
+                      <th className="px-2 sm:px-4 py-2 sm:py-3 font-medium whitespace-nowrap">Дата</th>
+                      <th className="px-2 sm:px-4 py-2 sm:py-3 font-medium min-w-[7rem]">Дистанция</th>
+                      <th className="px-2 sm:px-4 py-2 sm:py-3 font-medium whitespace-nowrap hidden sm:table-cell">Длительность</th>
+                      <th className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-right whitespace-nowrap">Стоимость</th>
+                      <th className="px-2 sm:px-4 py-2 sm:py-3 font-medium text-center whitespace-nowrap">Статус</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#262626] text-sm">
-                    {RIDES.map((ride, i) => (
-                      <tr key={i} className="hover:bg-white/5 transition-colors">
-                        <td className="px-4 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center text-neutral-300">
-                              <span className="material-symbols-outlined text-[18px]">{ride.icon}</span>
-                            </div>
-                            <span className="text-white font-medium">{ride.vehicle}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4 text-neutral-400">{ride.date}</td>
-                        <td className="px-4 py-4 text-neutral-300">
-                          <div className="flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-neutral-600" />
-                            <span className="text-xs text-neutral-500">{ride.from}</span>
-                            <span className="material-symbols-outlined text-[12px] text-neutral-600">arrow_right_alt</span>
-                            <span className="w-2 h-2 rounded-full bg-white" />
-                            <span className="text-xs text-white">{ride.to}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4 text-neutral-400">{ride.duration}</td>
-                        <td className="px-4 py-4 text-right text-white font-medium">{ride.cost}</td>
-                        <td className="px-4 py-4 text-center">
-                          <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium border ${ride.statusClass}`}>{ride.status}</span>
+                  <tbody className="divide-y divide-[#262626] text-xs sm:text-sm">
+                    {filteredHistory.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-8 text-center text-neutral-500">
+                          Нет завершённых поездок
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      filteredHistory.map((ride) => (
+                        <tr key={ride.id} className="hover:bg-white/5 transition-colors">
+                          <td className="px-2 sm:px-4 py-3 sm:py-4">
+                            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-neutral-800 flex items-center justify-center text-neutral-300 shrink-0">
+                                <span className="material-symbols-outlined text-[16px] sm:text-[18px]">directions_car</span>
+                              </div>
+                              <span className="text-white font-medium truncate max-w-[8rem] sm:max-w-none">{ride.vehicleName}</span>
+                            </div>
+                          </td>
+                          <td className="px-2 sm:px-4 py-3 sm:py-4 text-neutral-400 whitespace-nowrap">
+                            {new Date(ride.endedAt).toLocaleString('ru-RU')}
+                          </td>
+                          <td className="px-2 sm:px-4 py-3 sm:py-4 text-neutral-300">
+                            <span className="text-neutral-400">{ride.distanceKm.toFixed(2)} км</span>
+                          </td>
+                          <td className="px-2 sm:px-4 py-3 sm:py-4 text-neutral-400 hidden sm:table-cell">
+                            {ride.billableMinutes} мин
+                          </td>
+                          <td className="px-2 sm:px-4 py-3 sm:py-4 text-right text-white font-medium whitespace-nowrap">
+                            {ride.total.toFixed(2)} BYN
+                          </td>
+                          <td className="px-2 sm:px-4 py-3 sm:py-4 text-center">
+                            <span className="inline-flex items-center px-1.5 sm:px-2 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs font-medium border bg-neutral-200 text-black border-neutral-300">
+                              Завершено
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -299,7 +451,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <footer className="mt-8 pb-8 border-t border-[#262626] pt-6 flex flex-col md:flex-row justify-between items-center text-neutral-500 text-xs gap-4 max-w-[1400px] mx-auto px-4 md:px-8">
+        <footer className="mt-8 pb-[max(2rem,env(safe-area-inset-bottom))] border-t border-[#262626] pt-6 flex flex-col md:flex-row justify-between items-center text-neutral-500 text-xs gap-4 layout-shell">
           <p>© 2024 EV Rentals Inc. Все права защищены.</p>
           <div className="flex gap-6">
             <a className="hover:text-neutral-300 transition-colors" href="#">Конфиденциальность</a>

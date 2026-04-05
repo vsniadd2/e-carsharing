@@ -10,6 +10,7 @@ declare global {
         getZoom: () => number
         setBounds: (bounds: unknown, options?: { checkZoomRange?: boolean; zoomMargin?: number }) => void
         destroy: () => void
+        container: { fitToViewport: () => void }
       }
       Placemark: new (coords: number[], properties: object, options: object) => {
         events: { add: (event: string, handler: () => void) => void }

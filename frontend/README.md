@@ -1,6 +1,6 @@
 # EcoRide / EV Rentals — фронтенд
 
-React-фронтенд по макетам из 1.txt (лендинг), 2.txt (карта), 3.txt (дашборд). Бэкенд планируется на .NET C#.
+React-фронтенд EcoRide (лендинг, карта, дашборд, тарифы). API — .NET в каталоге `backend/`.
 
 ## Стек
 
@@ -42,11 +42,9 @@ npm run build
 
 ## Подключение бэкенда (.NET)
 
-1. В корне проекта создайте файл `.env` (или добавьте в существующий):
-   ```
-   VITE_API_URL=https://localhost:7001/api
-   ```
-2. В коде используйте хелперы из `src/api/client.ts`:
+Базовый URL API в коде задан пустой строкой: в dev Vite проксирует `/api` на `http://localhost:8080` (см. `vite.config.ts`). При необходимости измените константы в `src/api/auth.ts` и `src/api/client.ts`.
+
+1. Используйте хелперы из `src/api/client.ts`:
    - `apiGet<T>(path)`
    - `apiPost<T>(path, body)`
    - `apiPut<T>(path, body)`

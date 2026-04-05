@@ -1,8 +1,5 @@
-/**
- * Базовый URL бэкенда (.NET). Замените на свой при разработке.
- * Для production задайте через переменную окружения VITE_API_URL.
- */
-const BASE_URL = import.meta.env.VITE_API_URL ?? 'https://localhost:7001/api'
+/** Пустая строка: относительные пути; в dev Vite прокси `/api` → http://localhost:8080 (см. vite.config.ts). */
+const BASE_URL = ''
 
 export async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`)

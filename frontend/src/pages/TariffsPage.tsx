@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 type TabType = 'cars' | 'bikes' | 'scooters'
@@ -10,11 +10,33 @@ const TABS: { key: TabType; label: string; icon: string }[] = [
   { key: 'scooters', label: 'Самокаты', icon: 'electric_scooter' },
 ]
 
-type Item = { name: string; price: string; img: string; badge?: string; charge?: string }
+type Item = {
+  name: string
+  price: string
+  img: string
+  badge?: string
+  charge?: string
+  /** ID транспорта в парке API для перехода на карту */
+  fleetVehicleId?: string
+}
 
 const CARS: Item[] = [
-  { name: 'MINI Cooper Electric', price: '0.61', img: 'https://images.unsplash.com/photo-1617788138017-80ad40651399?w=400&h=250&fit=crop', badge: 'Daily', charge: '92%' },
-  { name: 'Ford Mustang Mach-E GT', price: '1.10', img: 'https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?w=400&h=250&fit=crop', badge: 'Premium', charge: '88%' },
+  {
+    name: 'MINI Cooper Electric',
+    price: '0.61',
+    img: 'https://images.unsplash.com/photo-1617788138017-80ad40651399?w=400&h=250&fit=crop',
+    badge: 'Daily',
+    charge: '92%',
+    fleetVehicleId: 'EC-1001',
+  },
+  {
+    name: 'Ford Mustang Mach-E GT',
+    price: '1.10',
+    img: 'https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?w=400&h=250&fit=crop',
+    badge: 'Premium',
+    charge: '88%',
+    fleetVehicleId: 'EC-1002',
+  },
   { name: 'Tesla Model Y', price: '0.99', img: 'https://images.unsplash.com/photo-1536700503339-1e4b06520771?w=400&h=250&fit=crop', badge: 'SUV', charge: '95%' },
   { name: 'Tesla Model 3', price: '0.61', img: 'https://images.unsplash.com/photo-1560958089-b8a1929cea89?w=400&h=250&fit=crop', badge: 'Daily', charge: '90%' },
   { name: 'Tesla Model S Performance Ludicrous', price: '2.20', img: 'https://images.unsplash.com/photo-1551830820-330a71b99659?w=400&h=250&fit=crop', badge: 'Premium', charge: '98%' },
@@ -26,11 +48,25 @@ const CARS: Item[] = [
 ]
 
 const BIKES: Item[] = [
-  { name: 'Электровелосипед', price: '0.85', img: 'https://images.unsplash.com/photo-1571068316344-75bc76f77890?w=400&h=250&fit=crop', badge: 'Город', charge: '95%' },
+  {
+    name: 'Электровелосипед',
+    price: '0.85',
+    img: 'https://images.unsplash.com/photo-1571068316344-75bc76f77890?w=400&h=250&fit=crop',
+    badge: 'Город',
+    charge: '95%',
+    fleetVehicleId: 'XB-3301',
+  },
 ]
 
 const SCOOTERS: Item[] = [
-  { name: 'Электросамокат', price: '0.75', img: 'https://images.unsplash.com/photo-1594925782034-5e4762d25953?w=400&h=250&fit=crop', badge: 'Микромобильность', charge: '90%' },
+  {
+    name: 'Электросамокат',
+    price: '0.75',
+    img: 'https://images.unsplash.com/photo-1594925782034-5e4762d25953?w=400&h=250&fit=crop',
+    badge: 'Микромобильность',
+    charge: '90%',
+    fleetVehicleId: 'S4-8829',
+  },
 ]
 
 const DATA: Record<TabType, Item[]> = {
@@ -40,55 +76,28 @@ const DATA: Record<TabType, Item[]> = {
 }
 
 export default function TariffsPage() {
-  const { user, logout } = useAuth()
   const [tab, setTab] = useState<TabType>('cars')
   const items = DATA[tab]
+  const { user } = useAuth()
+  const navigate = useNavigate()
+
+  const handleBook = (item: Item) => {
+    if (!user) {
+      navigate('/login', { state: { from: '/tariffs' } })
+      return
+    }
+    if (item.fleetVehicleId) {
+      navigate(`/map?vehicle=${encodeURIComponent(item.fleetVehicleId)}`)
+      return
+    }
+    navigate('/map')
+  }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-black text-slate-900 dark:text-slate-100 font-display flex flex-col">
-      <header className="sticky top-0 z-50 w-full border-b border-slate-200/80 dark:border-slate-800 bg-white/90 dark:bg-black/90 backdrop-blur-lg">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex h-20 items-center justify-between gap-6">
-            <Link to="/" className="flex items-center gap-2.5 shrink-0 focus:outline-none focus-visible:ring-0">
-              <div className="flex items-center justify-center size-10 rounded-xl bg-black dark:bg-white text-white dark:text-black shadow-sm">
-                <span className="material-symbols-outlined text-[24px]">electric_scooter</span>
-              </div>
-              <span className="text-xl font-bold tracking-tight text-black dark:text-white">EcoRide</span>
-            </Link>
-            <nav className="hidden md:flex items-center gap-8">
-              <Link to="/map" className="text-base font-medium py-2.5 text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white transition-colors">Карта</Link>
-              <Link to="/tariffs" className="text-base font-medium py-2.5 text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white transition-colors">Тарифы</Link>
-              <Link to="/rewards" className="text-base font-medium py-2.5 text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white transition-colors">Награды</Link>
-              <Link to="/support" className="text-base font-medium py-2.5 text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white transition-colors">Поддержка</Link>
-            </nav>
-            <div className="flex items-center gap-4 shrink-0">
-              {user ? (
-                <>
-                  <Link to="/dashboard" className="hidden sm:inline-flex text-base font-medium py-3 px-2 text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white transition-colors focus:outline-none focus-visible:ring-0">
-                    {user.name || user.email}
-                  </Link>
-                  <button type="button" onClick={() => logout()} className="hidden sm:inline-flex text-base font-medium py-3 px-4 rounded-xl text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors focus:outline-none focus-visible:ring-0">
-                    Выйти
-                  </button>
-                </>
-              ) : (
-                <div className="hidden sm:flex items-center gap-1 rounded-xl overflow-hidden focus-within:ring-0">
-                  <Link to="/register" className="px-6 py-3.5 text-base font-medium text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors rounded-l-xl focus:outline-none focus-visible:ring-0">
-                    Регистрация
-                  </Link>
-                  <Link to="/login" className="px-6 py-3.5 text-base font-medium text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors rounded-r-xl focus:outline-none focus-visible:ring-0">
-                    Войти
-                  </Link>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <div className="bg-white dark:bg-black flex w-full min-w-0 flex-col font-display overflow-x-clip">
+      <main className="flex-grow layout-shell py-8 sm:py-12 w-full min-w-0">
         <div className="mb-12">
-          <h1 className="text-4xl md:text-6xl font-bold mb-4 tracking-tight text-black dark:text-white">
+          <h1 className="text-3xl min-[400px]:text-4xl md:text-6xl font-bold mb-4 tracking-tight text-black dark:text-white">
             Наши <span className="text-slate-500 dark:text-slate-400">Тарифы</span>
           </h1>
           <p className="text-slate-500 text-lg max-w-2xl leading-relaxed">
@@ -96,27 +105,27 @@ export default function TariffsPage() {
           </p>
         </div>
 
-        <div className="mb-12">
-          <div className="inline-flex p-1 bg-slate-100 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800">
+        <div className="mb-8 sm:mb-12 w-full overflow-x-auto overscroll-x-contain pb-1">
+          <div className="inline-flex sm:flex p-1 bg-slate-100 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800 gap-1 min-w-min">
             {TABS.map(({ key, label, icon }) => (
               <button
                 key={key}
                 type="button"
                 onClick={() => setTab(key)}
-                className={`px-8 py-3 rounded-lg font-bold transition-all flex items-center gap-2 ${
+                className={`shrink-0 px-4 sm:px-8 py-2.5 sm:py-3 rounded-lg text-sm sm:text-base font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
                   tab === key
                     ? 'bg-black dark:bg-white text-white dark:text-black shadow-lg'
                     : 'text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white'
                 }`}
               >
-                <span className="material-symbols-outlined">{icon}</span>
+                <span className="material-symbols-outlined text-[20px] sm:text-[24px]">{icon}</span>
                 {label}
               </button>
             ))}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
           {items.map((item) => (
             <div
               key={item.name}
@@ -156,6 +165,7 @@ export default function TariffsPage() {
                   </div>
                   <button
                     type="button"
+                    onClick={() => handleBook(item)}
                     className="w-full py-4 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black text-black dark:text-white font-bold transition-all flex items-center justify-center gap-2"
                   >
                     Забронировать
@@ -168,9 +178,9 @@ export default function TariffsPage() {
         </div>
       </main>
 
-      <footer className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-black py-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
+      <footer className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-black py-10 sm:py-12 pb-[max(2.5rem,env(safe-area-inset-bottom))]">
+        <div className="layout-shell">
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8 mb-10 sm:mb-12">
             <div>
               <h4 className="text-black dark:text-white font-bold mb-4">Компания</h4>
               <ul className="space-y-2 text-sm text-slate-500">

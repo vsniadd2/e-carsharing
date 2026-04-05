@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ecoride-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ecoride
+      POSTGRES_PASSWORD: ecoride_dev
+      POSTGRES_DB: ecoride
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecoride -d ecoride"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: EcoRide.Api/Dockerfile
+    container_name: ecoride-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=ecoride;Username=ecoride;Password=ecoride_dev
+      Jwt__Key: ecoride-dev-jwt-secret-change-in-production-min-32-chars!
+      Jwt__Issuer: EcoRide
+      Jwt__Audience: EcoRide
+      Jwt__AccessTokenMinutes: "15"
+      Jwt__RefreshTokenDays: "7"
+      Admin__UserId: "11111111-1111-1111-1111-111111111111"
+      Admin__Email: "admin@ecoride.system"
+      Admin__Login: "admin"
+      Admin__Password: "admin"
+      Wallet__RegistrationBonus: "50"
+      Vapid__PublicKey: "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U"
+      Vapid__PrivateKey: "UUxI4O8-FbRouAf-evfsq6YSMDHSEuLXMgSqJ01CkPg"
+      Vapid__Subject: "mailto:admin@ecoride.system"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+    name: ecoride_postgres_data
