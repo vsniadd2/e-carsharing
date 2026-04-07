@@ -213,8 +213,14 @@ export type NotificationDto = {
   createdAt: string
 }
 
-export async function fetchNotifications(token: string): Promise<NotificationDto[]> {
-  const res = await authedFetch(token, '/api/notifications', { method: 'GET' })
+export async function fetchNotifications(
+  token: string,
+  options?: { take?: number; retentionDays?: number }
+): Promise<NotificationDto[]> {
+  const take = options?.take ?? 50
+  const retentionDays = options?.retentionDays ?? 7
+  const q = new URLSearchParams({ take: String(take), retentionDays: String(retentionDays) })
+  const res = await authedFetch(token, `/api/notifications?${q}`, { method: 'GET' })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(await readError(res, data))
   return data as NotificationDto[]

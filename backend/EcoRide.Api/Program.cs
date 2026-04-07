@@ -23,6 +23,7 @@ builder.Services.AddScoped<IRentalService, RentalService>();
 builder.Services.AddScoped<IPushDispatchService, PushDispatchService>();
 builder.Services.AddHostedService<ReservationExpiryHostedService>();
 builder.Services.AddHostedService<ActiveRentalLiveTickHostedService>();
+builder.Services.AddHostedService<UserNotificationRetentionHostedService>();
 
 var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key is not configured.");
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "EcoRide";

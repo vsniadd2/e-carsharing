@@ -106,10 +106,10 @@ export default function ContentPage() {
 
   if (!page) {
     return (
-      <div className="flex w-full min-w-0 min-h-dvh items-center justify-center bg-white dark:bg-black text-slate-900 dark:text-slate-100 px-4">
+      <div className="flex w-full min-w-0 min-h-dvh items-center justify-center text-white px-4">
         <div className="layout-shell text-center max-w-lg">
-          <h1 className="text-[clamp(1.5rem,4vw,2rem)] font-bold mb-4">Страница не найдена</h1>
-          <Link to="/" className="text-slate-500 hover:text-black dark:hover:text-white text-sm sm:text-base inline-block">
+          <h1 className="font-display text-[clamp(1.5rem,4vw,2rem)] font-bold mb-4">Страница не найдена</h1>
+          <Link to="/" className="text-[#D4FF00] hover:text-white text-sm sm:text-base inline-block transition-colors">
             На главную
           </Link>
         </div>
@@ -118,12 +118,12 @@ export default function ContentPage() {
   }
 
   return (
-    <div className="bg-white dark:bg-black flex w-full min-w-0 flex-col overflow-x-clip">
+    <div className="flex w-full min-w-0 flex-col overflow-x-clip text-white">
       <main className="layout-shell py-8 sm:py-12 w-full min-w-0">
-        <h1 className="text-[clamp(1.75rem,3vw+0.5rem,2.25rem)] font-bold text-black dark:text-white mb-6 sm:mb-8">
+        <h1 className="font-display text-[clamp(1.75rem,3vw+0.5rem,2.25rem)] font-bold text-white mb-6 sm:mb-8">
           {page.title}
         </h1>
-        <div className="space-y-4 text-sm sm:text-base text-slate-600 dark:text-slate-400 leading-relaxed max-w-3xl">
+        <div className="space-y-4 rounded-[1.25rem] border border-white/10 bg-white/[0.03] p-6 sm:p-8 text-sm sm:text-base text-neutral-300 leading-relaxed max-w-3xl">
           {page.content.map((paragraph, i) => (
             <p key={i}>{paragraph}</p>
           ))}

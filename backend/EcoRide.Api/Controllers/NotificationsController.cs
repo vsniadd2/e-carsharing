@@ -1,6 +1,7 @@
 using EcoRide.Api.Auth;
 using EcoRide.Api.Contracts;
 using EcoRide.Api.Data;
+using EcoRide.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -13,14 +14,19 @@ namespace EcoRide.Api.Controllers;
 public class NotificationsController(AppDbContext db) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<NotificationDto>>> List([FromQuery] int take = 30, CancellationToken ct = default)
+    public async Task<ActionResult<IReadOnlyList<NotificationDto>>> List(
+        [FromQuery] int take = 50,
+        [FromQuery] int retentionDays = UserNotificationRetentionHostedService.RetentionDays,
+        CancellationToken ct = default)
     {
         var userId = User.GetUserId();
         if (userId is null) return Unauthorized();
         take = Math.Clamp(take, 1, 100);
+        retentionDays = Math.Clamp(retentionDays, 1, 90);
+        var cutoff = DateTime.UtcNow.AddDays(-retentionDays);
 
         var list = await db.UserNotifications.AsNoTracking()
-            .Where(n => n.UserId == userId.Value)
+            .Where(n => n.UserId == userId.Value && n.CreatedAt >= cutoff)
             .OrderByDescending(n => n.CreatedAt)
             .Take(take)
             .Select(n => new NotificationDto

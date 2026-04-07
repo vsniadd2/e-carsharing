@@ -1,4 +1,4 @@
-import { Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
+import { useNavigate, useSearchParams, useOutletContext } from 'react-router-dom'
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import * as signalR from '@microsoft/signalr'
@@ -23,6 +23,7 @@ import { playNotifySound } from '../lib/notifyBeep'
 import { buildFleetMapMarkerDataUrl, type FleetMapMarkerKind } from '../lib/mapFleetMarker'
 import { VEHICLE_CLASS_LABEL_RU } from '../lib/tariffCaps'
 import { buildVehicleMapDeepLink } from '../lib/vehicleQrLink'
+import type { SiteOutletContext } from '../lib/siteOutletContext'
 
 type VehicleFilter = 'all' | 'scooters' | 'bikes' | 'cars' | 'charging'
 
@@ -100,8 +101,24 @@ const YANDEX_MAPS_API_KEY = '83bb1cb1-7dc7-4552-bd60-439f4cecb36d'
 const YANDEX_SCRIPT_ID = 'yandex-maps-api-script'
 const YANDEX_SCRIPT_URL_21 = `https://api-maps.yandex.ru/2.1/?apikey=${encodeURIComponent(YANDEX_MAPS_API_KEY)}&lang=ru_RU`
 
-const sidebarNavClass =
-  'flex items-center gap-3 px-3 sm:px-4 py-3 rounded-xl touch-manipulation select-none transition-colors'
+function haversineMeters(a: [number, number], b: [number, number]): number {
+  const R = 6371000
+  const toRad = (x: number) => (x * Math.PI) / 180
+  const [lat1, lon1] = a
+  const [lat2, lon2] = b
+  const dLat = toRad(lat2 - lat1)
+  const dLon = toRad(lon2 - lon1)
+  const q =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(q)))
+}
+
+function formatAvgDistanceMeters(m: number): string {
+  if (!Number.isFinite(m) || m < 0) return '—'
+  if (m < 1000) return `${Math.round(m)}m`
+  return `${(m / 1000).toFixed(1)}km`
+}
 
 /** Метка на Яндекс.Картах (типы пакета неполные). */
 type YMapPlacemark = {
@@ -118,9 +135,12 @@ function formatReservationCountdown(totalSec: number): string {
 }
 
 export default function MapPage() {
+  const { mapUi } = useOutletContext<SiteOutletContext>()
+  if (!mapUi) throw new Error('MapPage: требуется mapUi из SiteLayout')
+  const { mapQuery, mapOnlyAvailable } = mapUi
+
   const { token, user, isAccessTokenValid, refreshProfile } = useAuth()
   const navigate = useNavigate()
-  const location = useLocation()
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
   const [filter, setFilter] = useState<VehicleFilter>('cars')
@@ -131,10 +151,6 @@ export default function MapPage() {
   const yandexMapRef = useRef<InstanceType<Window['ymaps']['Map']> | null>(null)
   const initCalledRef = useRef(false)
   const [retryTrigger, setRetryTrigger] = useState(0)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [mapQuery, setMapQuery] = useState('')
-  const [mapFilterOpen, setMapFilterOpen] = useState(false)
-  const [mapOnlyAvailable, setMapOnlyAvailable] = useState(false)
   const [rentalError, setRentalError] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<TripReceiptDto | null>(null)
   const [useCarsikiOnComplete, setUseCarsikiOnComplete] = useState(false)
@@ -205,6 +221,7 @@ export default function MapPage() {
       if (!Number.isNaN(ra)) endMs = ra + 20 * 60 * 1000
     }
     if (Number.isNaN(endMs)) return null
+    /* eslint-disable-next-line react-hooks/purity -- остаток брони от «сейчас», обновляется по reservationTick */
     return Math.max(0, Math.floor((endMs - Date.now()) / 1000))
   }, [
     activeRental?.status,
@@ -330,8 +347,6 @@ export default function MapPage() {
     onError: (e: Error) => setRentalError(e.message),
   })
 
-  const closeSidebar = () => setSidebarOpen(false)
-
   const handleRentClick = useCallback(() => {
     if (!token || !user) {
       navigate('/login', { state: { from: '/map' } })
@@ -376,6 +391,24 @@ export default function MapPage() {
       return id.includes(q) || name.includes(q) || desc.includes(q)
     })
   }, [tabFilteredVehicles, mapOnlyAvailable, mapQuery])
+
+  const liveFleetStats = useMemo(() => {
+    const transport = mapFilteredVehicles.filter((v) => v.type !== 'charging')
+    const available = transport.filter(
+      (v) => v.fleetStatus === 'available' || v.fleetStatus == null || v.fleetStatus === '',
+    ).length
+    const forDist = transport.filter((v) => v.fleetStatus !== 'inuse')
+    const center: [number, number] = [MINSK_CENTER[0], MINSK_CENTER[1]]
+    let avgM = 0
+    if (forDist.length > 0) {
+      const sum = forDist.reduce((acc, v) => acc + haversineMeters(center, v.position), 0)
+      avgM = sum / forDist.length
+    }
+    return {
+      availableLabel: available.toLocaleString('en-US'),
+      avgLabel: forDist.length ? formatAvgDistanceMeters(avgM) : '—',
+    }
+  }, [mapFilteredVehicles])
 
   useEffect(() => {
     const vid = searchParams.get('vehicle')
@@ -455,6 +488,12 @@ export default function MapPage() {
         controls: [],
       })
       yandexMapRef.current = map
+      try {
+        const o = (map as unknown as { options?: { set?: (k: string, v: unknown) => void } }).options
+        o?.set?.('theme', 'dark')
+      } catch {
+        /* тема может быть недоступна в raster 2.1 */
+      }
       /* Контейнер часто 0×0 при первом кадре (flex + absolute) — без этого тайлы не грузятся */
       requestAnimationFrame(() => {
         fitMapViewport(map)
@@ -697,224 +736,121 @@ export default function MapPage() {
   const showLowBadge =
     Boolean(selectedVehicle?.type !== 'charging' && (selectedVehicle?.lowBattery || activeRental?.lowBatteryMode))
 
+  const neonIconFill = { fontVariationSettings: "'FILL' 1" } as const
+
   return (
-    <div className="bg-black text-white font-display overflow-hidden flex-1 min-h-0 w-full flex flex-row relative items-stretch">
+    <div className="bg-[color:var(--color-map-bg)] text-white font-display overflow-hidden flex-1 min-h-0 w-full min-h-dvh h-dvh relative flex flex-col">
       {carsikiToast ? (
         <div
-          className="fixed top-[max(0.75rem,env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-[2600] max-w-[min(28rem,calc(100%-2rem))] rounded-2xl border border-emerald-500/60 bg-emerald-950/95 text-emerald-100 px-4 py-3 text-sm shadow-xl"
+          className="fixed top-[max(0.75rem,env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-[2600] max-w-[min(28rem,calc(100%-2rem))] rounded-2xl border border-[color:var(--color-map-tertiary-glow)]/50 bg-neutral-950/95 text-[color:var(--color-map-tertiary-glow)] px-4 py-3 text-sm shadow-xl"
           role="status"
         >
           {carsikiToast}
         </div>
       ) : null}
-      {sidebarOpen && (
-        <button
-          type="button"
-          className="fixed inset-0 z-[65] bg-black/60 lg:hidden"
-          aria-label="Закрыть меню"
-          onClick={closeSidebar}
-        />
-      )}
-      <aside
-        className={`fixed lg:relative z-[70] top-0 bottom-0 left-0 w-[min(280px,100vw)] flex-shrink-0 min-h-0 h-full flex flex-col justify-between bg-black border-r border-[#333] transition-transform duration-300 ease-out ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-        }`}
-      >
-        <div className="p-4 sm:p-6 flex flex-col gap-4 sm:gap-6 pt-[max(1rem,env(safe-area-inset-top))] lg:pt-4">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-gray-400 text-xs font-normal truncate min-w-0">
-              Баланс:{' '}
-              <span className="text-white font-bold">
-                {(activeRental != null ? activeRental.balance : (user?.balance ?? 0)).toFixed(2)} BYN
+
+      <main className="flex-1 min-w-0 min-h-0 flex flex-col relative overflow-hidden bg-[color:var(--color-map-bg)]">
+        <div className="fixed z-[38] bottom-[max(5.5rem,env(safe-area-inset-bottom)+4.5rem)] sm:bottom-12 left-4 right-4 md:left-[7rem] md:right-auto md:max-w-xs pointer-events-auto">
+          <div className="bg-neutral-900/60 backdrop-blur-xl rounded-xl p-3 sm:p-4 border border-white/5">
+            <div className="flex items-center gap-3 mb-3 sm:mb-4">
+              <div className="w-2 h-2 rounded-full bg-[color:var(--color-map-tertiary-glow)] shadow-[0_0_8px_#6bfe9c]" />
+              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-neutral-400">
+                Live Operations: Minsk
               </span>
-            </p>
-            <button
-              type="button"
-              className="lg:hidden shrink-0 size-10 flex items-center justify-center rounded-xl border border-[#333] text-gray-300 hover:text-white hover:bg-white/10"
-              aria-label="Закрыть меню"
-              onClick={closeSidebar}
-            >
-              <span className="material-symbols-outlined">close</span>
-            </button>
-          </div>
-          <Link
-            to="/dashboard#wallet"
-            onClick={closeSidebar}
-            className="flex w-full cursor-pointer items-center justify-center rounded-xl h-10 px-4 bg-white text-black text-sm font-bold border border-white hover:bg-black hover:text-white transition-colors touch-manipulation"
-          >
-            <span className="material-symbols-outlined mr-2 text-[20px]">add</span>
-            Пополнить
-          </Link>
-        </div>
-        <nav className="flex-1 px-3 sm:px-4 flex flex-col gap-2 overflow-y-auto">
-          <Link
-            to="/"
-            onClick={closeSidebar}
-            className={`${sidebarNavClass} text-gray-400 hover:text-white hover:border hover:border-white/20`}
-          >
-            <span className="material-symbols-outlined">home</span>
-            <span className="text-sm font-medium">Главная</span>
-          </Link>
-          <Link
-            to="/map"
-            onClick={(e) => {
-              closeSidebar()
-              if (location.pathname === '/map') e.preventDefault()
-            }}
-            className={`${sidebarNavClass} bg-white text-black border border-white`}
-          >
-            <span className="material-symbols-outlined">map</span>
-            <span className="text-sm font-bold">Карта</span>
-          </Link>
-          <Link
-            to="/dashboard#wallet"
-            onClick={closeSidebar}
-            className={`${sidebarNavClass} text-gray-400 hover:text-white hover:border hover:border-white/20`}
-          >
-            <span className="material-symbols-outlined">account_balance_wallet</span>
-            <span className="text-sm font-medium">Кошелёк</span>
-          </Link>
-          <Link
-            to="/dashboard#history"
-            onClick={closeSidebar}
-            className={`${sidebarNavClass} text-gray-400 hover:text-white hover:border hover:border-white/20`}
-          >
-            <span className="material-symbols-outlined">pedal_bike</span>
-            <span className="text-sm font-medium">Поездки</span>
-          </Link>
-          <Link
-            to="/dashboard#settings"
-            onClick={closeSidebar}
-            className={`${sidebarNavClass} text-gray-400 hover:text-white hover:border hover:border-white/20`}
-          >
-            <span className="material-symbols-outlined">settings</span>
-            <span className="text-sm font-medium">Настройки</span>
-          </Link>
-          <Link
-            to="/support"
-            onClick={closeSidebar}
-            className={`${sidebarNavClass} text-gray-400 hover:text-white hover:border hover:border-white/20`}
-          >
-            <span className="material-symbols-outlined">support_agent</span>
-            <span className="text-sm font-medium">Поддержка</span>
-          </Link>
-        </nav>
-        <div className="p-3 sm:p-4 border-t border-[#333] bg-black pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:pb-3">
-          <div className="flex items-center gap-3 text-gray-400 text-xs">
-            <span className="material-symbols-outlined text-white text-[16px]">wifi</span>
-            <span>Система онлайн</span>
-          </div>
-        </div>
-      </aside>
-
-      <main className="flex-1 min-w-0 min-h-[calc(100dvh-5.5rem)] lg:min-h-0 flex flex-col relative overflow-hidden bg-black">
-        <div className="absolute top-0 left-0 right-0 z-[1000] pt-[max(0.5rem,env(safe-area-inset-top))] pointer-events-none">
-          <div className="layout-safe-x flex justify-between items-start gap-2 pointer-events-none">
-          <div className="pointer-events-auto flex flex-1 min-w-0 items-start gap-2">
-            <button
-              type="button"
-              className="lg:hidden shrink-0 size-10 flex items-center justify-center bg-black text-white rounded-xl shadow-lg border border-[#333] hover:bg-white hover:text-black transition-colors"
-              aria-label="Открыть меню"
-              onClick={() => setSidebarOpen(true)}
-            >
-              <span className="material-symbols-outlined text-[22px]">menu</span>
-            </button>
-            <div className="flex-1 min-w-0 max-w-md shadow-2xl shadow-black/80 relative">
-            <label className="flex flex-col w-full">
-              <div className="flex w-full items-center rounded-xl bg-black border border-[#333] h-12">
-                <div className="text-white flex items-center justify-center pl-4 shrink-0">
-                  <span className="material-symbols-outlined">search</span>
-                </div>
-                <input
-                  value={mapQuery}
-                  onChange={(e) => setMapQuery(e.target.value)}
-                  className="w-full min-w-0 bg-transparent border-none text-white placeholder-gray-500 focus:ring-0 px-4 h-full text-sm font-medium"
-                  placeholder="ID, название или фрагмент описания…"
-                  autoComplete="off"
-                />
-                <div className="pr-2 shrink-0">
-                  <button
-                    type="button"
-                    aria-expanded={mapFilterOpen}
-                    aria-label="Фильтр на карте"
-                    onClick={() => setMapFilterOpen((o) => !o)}
-                    className={`p-2 rounded-full hover:bg-white/10 ${
-                      mapFilterOpen || mapOnlyAvailable ? 'text-white bg-white/10' : 'text-gray-400 hover:text-white'
-                    }`}
-                  >
-                    <span className="material-symbols-outlined">tune</span>
-                  </button>
-                </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:gap-4">
+              <div>
+                <p className="text-[10px] text-neutral-500 uppercase font-bold mb-0.5">Available Vehicles</p>
+                <p className="text-xl sm:text-2xl font-display font-bold tabular-nums">{liveFleetStats.availableLabel}</p>
               </div>
-              {mapFilterOpen && (
-                <div className="absolute left-0 right-0 top-full mt-1 z-[1100] rounded-xl border border-[#333] bg-black/95 backdrop-blur-sm p-3 shadow-xl pointer-events-auto">
-                  <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={mapOnlyAvailable}
-                      onChange={(e) => setMapOnlyAvailable(e.target.checked)}
-                      className="rounded border-gray-500"
-                    />
-                    Только свободные (скрыть забронированные и в поездке)
-                  </label>
-                </div>
-              )}
-            </label>
+              <div>
+                <p className="text-[10px] text-neutral-500 uppercase font-bold mb-0.5">Avg. Distance</p>
+                <p className="text-xl sm:text-2xl font-display font-bold tabular-nums">{liveFleetStats.avgLabel}</p>
+              </div>
             </div>
-          </div>
-          <div className="flex flex-col gap-2 pointer-events-auto shrink-0">
-            <button type="button" onClick={handleMyLocation} className="size-10 flex items-center justify-center bg-black text-white rounded-xl shadow-lg border border-[#333] hover:bg-white hover:text-black transition-colors">
-              <span className="material-symbols-outlined">my_location</span>
-            </button>
-            <div className="flex flex-col rounded-xl shadow-lg border border-[#333] overflow-hidden">
-              <button type="button" onClick={handleZoomIn} className="size-10 flex items-center justify-center bg-black text-white hover:bg-white hover:text-black border-b border-[#333] transition-colors">
-                <span className="material-symbols-outlined">add</span>
-              </button>
-              <button type="button" onClick={handleZoomOut} className="size-10 flex items-center justify-center bg-black text-white hover:bg-white hover:text-black transition-colors">
-                <span className="material-symbols-outlined">remove</span>
-              </button>
-            </div>
-          </div>
-          </div>
-        </div>
-
-        <div className="absolute left-0 right-0 z-[999] pointer-events-none top-[max(4.25rem,calc(env(safe-area-inset-top,0px)+3.75rem))] lg:top-auto lg:bottom-6 lg:left-0 lg:right-0 pb-0">
-          <div className="layout-safe-x pointer-events-none">
-          <div className="bg-black/90 backdrop-blur-sm border border-[#333] rounded-2xl p-2 shadow-xl flex flex-wrap gap-1 pointer-events-auto max-h-[36vh] overflow-y-auto lg:max-h-none w-full sm:w-fit max-w-full">
-            {(['all', 'scooters', 'bikes', 'cars', 'charging'] as const).map((key) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setFilter(key)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${
-                  filter === key ? 'bg-white text-black border border-white' : 'text-gray-400 hover:text-white hover:bg-white/10'
-                }`}
-              >
-                <span className="material-symbols-outlined text-[18px]">
-                  {key === 'all' ? 'apps' : key === 'scooters' ? 'electric_scooter' : key === 'bikes' ? 'pedal_bike' : key === 'cars' ? 'directions_car' : 'ev_station'}
-                </span>
-                {key === 'all' ? 'Все' : key === 'scooters' ? 'Самокаты' : key === 'bikes' ? 'Велосипеды' : key === 'cars' ? 'Автомобили' : 'Зарядки'}
-              </button>
-            ))}
           </div>
           {vehiclesError && (
-            <p className="text-amber-400 text-xs mt-2 pointer-events-auto px-1">Не удалось загрузить парк с сервера</p>
+            <p className="text-amber-400 text-[10px] sm:text-xs mt-2 px-0.5">Не удалось загрузить парк с сервера</p>
           )}
           {activeRental?.lowBatteryMode && (
-            <div className="mt-2 pointer-events-auto w-full max-w-md">
-              <div className="rounded-xl border border-amber-500/80 bg-amber-950/95 text-amber-100 text-xs sm:text-sm px-3 py-2">
-                Низкий заряд транспорта. Ограничение скорости {activeRental.speedLimitKmh ?? 90} км/ч.
-              </div>
+            <div className="mt-2 rounded-xl border border-amber-500/80 bg-amber-950/95 text-amber-100 text-[10px] sm:text-xs px-3 py-2">
+              Низкий заряд транспорта. Ограничение скорости {activeRental.speedLimitKmh ?? 90} км/ч.
             </div>
           )}
+        </div>
+
+        <div className="fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[40] pointer-events-auto w-[min(calc(100vw-1rem),52rem)] px-1">
+          <div className="bg-neutral-900/60 backdrop-blur-2xl rounded-full p-1.5 sm:p-2 flex items-center gap-0.5 sm:gap-2 shadow-[0px_24px_48px_rgba(0,0,0,0.6)] border border-white/5 overflow-x-auto [scrollbar-width:none]">
+            {(['all', 'scooters', 'bikes', 'cars'] as const).map((key) => {
+              const active = filter === key
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setFilter(key)}
+                  className={`shrink-0 px-3 sm:px-6 py-2 sm:py-3 rounded-full text-[11px] sm:text-sm font-bold transition-all flex items-center gap-1 sm:gap-2 ${
+                    active
+                      ? 'bg-[#D4FF00] text-[#0a0a0a] shadow-[0_0_20px_rgba(212,255,0,0.3)]'
+                      : 'text-neutral-400 hover:bg-white/5'
+                  }`}
+                >
+                  {key === 'scooters' || key === 'bikes' || key === 'cars' ? (
+                    <span
+                      className="material-symbols-outlined text-base sm:text-lg"
+                      style={key === 'cars' && active ? neonIconFill : undefined}
+                    >
+                      {key === 'scooters' ? 'electric_scooter' : key === 'bikes' ? 'pedal_bike' : 'electric_car'}
+                    </span>
+                  ) : null}
+                  {key === 'all' ? 'All' : key === 'scooters' ? 'Scooters' : key === 'bikes' ? 'Bikes' : 'Cars'}
+                </button>
+              )
+            })}
+            <div className="w-px h-5 sm:h-6 bg-white/10 mx-1 shrink-0" />
+            <button
+              type="button"
+              aria-label="Зарядные станции"
+              onClick={() => setFilter('charging')}
+              className={`shrink-0 p-2 sm:p-3 rounded-full transition-all ${
+                filter === 'charging' ? 'bg-[#D4FF00] text-[#0a0a0a] shadow-[0_0_20px_rgba(212,255,0,0.3)]' : 'text-neutral-400 hover:bg-white/5'
+              }`}
+            >
+              <span className="material-symbols-outlined text-lg sm:text-xl">ev_station</span>
+            </button>
           </div>
+        </div>
+
+        <div className="fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] right-[max(0.5rem,env(safe-area-inset-right))] z-[40] flex flex-col gap-3 sm:gap-4 pointer-events-auto">
+          <div className="flex flex-col bg-neutral-900/80 backdrop-blur-xl rounded-full p-0.5 shadow-2xl border border-white/5">
+            <button
+              type="button"
+              onClick={handleZoomIn}
+              className="p-3 sm:p-4 hover:text-[#D4FF00] transition-colors border-b border-white/5"
+              aria-label="Приблизить"
+            >
+              <span className="material-symbols-outlined">add</span>
+            </button>
+            <button type="button" onClick={handleZoomOut} className="p-3 sm:p-4 hover:text-[#D4FF00] transition-colors" aria-label="Отдалить">
+              <span className="material-symbols-outlined">remove</span>
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={handleMyLocation}
+            className="bg-[#D4FF00] p-3 sm:p-4 rounded-full text-[#546600] shadow-2xl transition-transform hover:scale-105 active:scale-95"
+            aria-label="Моё местоположение"
+          >
+            <span className="material-symbols-outlined" style={neonIconFill}>
+              my_location
+            </span>
+          </button>
         </div>
 
         {selectedVehicle && (
-        <div className="absolute bottom-0 left-0 right-0 z-[1000] pb-[max(0.25rem,env(safe-area-inset-bottom))] lg:bottom-6 lg:pb-0 pointer-events-none">
+        <div className="absolute bottom-0 left-0 right-0 z-[1000] pb-[max(4.5rem,env(safe-area-inset-bottom)+3.5rem)] sm:pb-[max(1rem,env(safe-area-inset-bottom))] lg:bottom-6 lg:pb-0 pointer-events-none">
           <div className="layout-safe-x flex justify-stretch lg:justify-end pointer-events-none">
           <div className="w-full lg:w-[380px] max-w-full pointer-events-auto">
-          <div className="bg-[#121212] border border-[#333] rounded-t-3xl lg:rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[min(52dvh,520px)] lg:max-h-none">
+          <div className="bg-neutral-900/90 backdrop-blur-xl border border-white/10 rounded-t-3xl lg:rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[min(52dvh,520px)] lg:max-h-none">
                 <div
                   className="h-48 bg-cover bg-center relative grayscale contrast-125"
                   style={{ backgroundImage: `url("${vehicleCardHeroImage(selectedVehicle)}")` }}
@@ -935,7 +871,7 @@ export default function MapPage() {
                     <span className={`size-2 rounded-full ${showLowBadge ? 'bg-black' : 'bg-white animate-pulse'}`} />
                     {availabilityLabel || '—'}
                   </div>
-                  <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-[#121212] to-transparent" />
+                  <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-neutral-900 to-transparent" />
                 </div>
                 <div className="p-5 flex flex-col gap-4 -mt-6 relative z-10">
                   <div className="flex justify-between items-start">
@@ -977,7 +913,7 @@ export default function MapPage() {
                     )}
                   </div>
                   {vehicleDeepLink ? (
-                    <div className="flex gap-3 items-stretch rounded-2xl border border-[#333] bg-black/50 p-3">
+                    <div className="flex gap-3 items-stretch rounded-2xl border border-white/10 bg-black/40 p-3">
                       <div className="shrink-0 rounded-xl bg-white p-1.5">
                         <QRCode
                           value={vehicleDeepLink}
@@ -998,7 +934,7 @@ export default function MapPage() {
                         <button
                           type="button"
                           onClick={() => void copyVehicleLink(vehicleDeepLink)}
-                          className="self-start text-xs font-medium px-2 py-1 rounded border border-[#555] text-gray-300 hover:text-white hover:border-gray-400 transition-colors"
+                          className="self-start text-xs font-medium px-2 py-1 rounded border border-white/15 text-neutral-300 hover:text-white hover:border-[#D4FF00]/40 transition-colors"
                         >
                           {linkCopied ? 'Скопировано' : 'Копировать ссылку'}
                         </button>
@@ -1014,27 +950,27 @@ export default function MapPage() {
                     (liveBattery != null || selectedVehicle.rangeKm != null || selectedVehicle.seats != null) && (
                     <div className={`grid gap-3 ${selectedVehicle.seats != null ? 'grid-cols-3' : 'grid-cols-2'}`}>
                       {liveBattery != null && (
-                        <div className="bg-[#121212] rounded-xl p-3 flex flex-col gap-1 border border-[#333]">
+                        <div className="bg-black/30 rounded-xl p-3 flex flex-col gap-1 border border-white/10">
                           <div className="flex items-center gap-2 text-gray-400 text-xs uppercase tracking-wider font-bold">
-                            <span className="material-symbols-outlined text-[16px] text-white">battery_charging_full</span>
+                            <span className="material-symbols-outlined text-[16px] text-[#D4FF00]">battery_charging_full</span>
                             Батарея
                           </div>
                           <span className="text-white font-mono text-lg font-medium">{liveBattery}%</span>
                         </div>
                       )}
                       {selectedVehicle.rangeKm != null && (
-                        <div className="bg-[#121212] rounded-xl p-3 flex flex-col gap-1 border border-[#333]">
+                        <div className="bg-black/30 rounded-xl p-3 flex flex-col gap-1 border border-white/10">
                           <div className="flex items-center gap-2 text-gray-400 text-xs uppercase tracking-wider font-bold">
-                            <span className="material-symbols-outlined text-[16px] text-white">distance</span>
+                            <span className="material-symbols-outlined text-[16px] text-[#D4FF00]">distance</span>
                             Запас
                           </div>
                           <span className="text-white font-mono text-lg font-medium">{selectedVehicle.rangeKm} км</span>
                         </div>
                       )}
                       {selectedVehicle.seats != null && (
-                        <div className="bg-[#121212] rounded-xl p-3 flex flex-col gap-1 border border-[#333]">
+                        <div className="bg-black/30 rounded-xl p-3 flex flex-col gap-1 border border-white/10">
                           <div className="flex items-center gap-2 text-gray-400 text-xs uppercase tracking-wider font-bold">
-                            <span className="material-symbols-outlined text-[16px] text-white">group</span>
+                            <span className="material-symbols-outlined text-[16px] text-[#D4FF00]">group</span>
                             Мест
                           </div>
                           <span className="text-white font-mono text-lg font-medium">{selectedVehicle.seats}</span>
@@ -1050,7 +986,7 @@ export default function MapPage() {
                         </p>
                       )}
                       {activeRental && mineTrip && (
-                        <div className="rounded-xl border border-[#444] bg-black/40 p-3 text-xs text-gray-300 space-y-1">
+                        <div className="rounded-xl border border-white/10 bg-black/35 p-3 text-xs text-neutral-300 space-y-1">
                           <p>
                             Статус: <span className="text-white font-bold">{activeRental.status}</span>
                           </p>
@@ -1078,8 +1014,8 @@ export default function MapPage() {
                             disabled={showPrimaryStart ? startMut.isPending : reserveMut.isPending}
                             className={`flex-1 min-w-[140px] h-11 disabled:opacity-50 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all border ${
                               showPrimaryStart
-                                ? 'bg-green-500 hover:bg-green-400 text-black border-green-500'
-                                : 'bg-white hover:bg-gray-200 text-black border-white'
+                                ? 'bg-[#D4FF00] hover:bg-[#e5ff4d] text-[#0a0a0a] border-[#D4FF00] shadow-[0_0_16px_rgba(212,255,0,0.35)]'
+                                : 'bg-[#D4FF00] hover:bg-[#e5ff4d] text-[#0a0a0a] border-[#D4FF00]'
                             }`}
                           >
                             <span className="material-symbols-outlined">
@@ -1099,7 +1035,7 @@ export default function MapPage() {
                             type="button"
                             onClick={() => cancelMut.mutate()}
                             disabled={cancelMut.isPending}
-                            className="h-11 px-3 rounded-xl border border-[#555] text-gray-300 text-sm hover:text-white hover:border-gray-400"
+                            className="h-11 px-3 rounded-xl border border-white/15 text-neutral-300 text-sm hover:text-white hover:border-[#D4FF00]/40"
                           >
                             {cancelMut.isPending ? '…' : 'Отмена брони'}
                           </button>
@@ -1121,7 +1057,7 @@ export default function MapPage() {
                                 setCompleteTripDialogOpen(true)
                               }}
                               disabled={completeMut.isPending}
-                              className="flex-1 min-w-[120px] h-11 bg-white hover:bg-gray-200 text-black rounded-xl font-bold text-sm"
+                              className="flex-1 min-w-[120px] h-11 bg-[#D4FF00] hover:bg-[#e5ff4d] text-[#0a0a0a] rounded-xl font-bold text-sm"
                             >
                               Завершить
                             </button>
@@ -1133,7 +1069,7 @@ export default function MapPage() {
                               type="button"
                               onClick={() => resumeMut.mutate()}
                               disabled={resumeMut.isPending}
-                              className="flex-1 h-11 bg-green-500 hover:bg-green-400 text-black rounded-xl font-bold text-sm"
+                              className="flex-1 h-11 bg-[#D4FF00] hover:bg-[#e5ff4d] text-[#0a0a0a] rounded-xl font-bold text-sm border border-[#D4FF00]"
                             >
                               Продолжить
                             </button>
@@ -1144,7 +1080,7 @@ export default function MapPage() {
                                 setCompleteTripDialogOpen(true)
                               }}
                               disabled={completeMut.isPending}
-                              className="flex-1 h-11 bg-white hover:bg-gray-200 text-black rounded-xl font-bold text-sm"
+                              className="flex-1 h-11 bg-neutral-800 hover:bg-neutral-700 text-white border border-white/15 rounded-xl font-bold text-sm"
                             >
                               Завершить
                             </button>
@@ -1161,7 +1097,7 @@ export default function MapPage() {
         )}
 
         <div className="absolute inset-0 z-0">
-          <div ref={mapContainerRef} className="h-full w-full bg-black" />
+          <div ref={mapContainerRef} className="h-full w-full bg-[color:var(--color-map-bg)]" />
           {scriptError && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-[300] p-6">
               <div className="text-center text-gray-300 max-w-md flex flex-col gap-4">
@@ -1179,7 +1115,7 @@ export default function MapPage() {
                 <button
                   type="button"
                   onClick={handleRetryMap}
-                  className="mx-auto px-6 py-2 rounded-xl bg-white text-black font-medium hover:bg-gray-200 transition-colors"
+                  className="mx-auto px-6 py-2 rounded-xl bg-[#D4FF00] text-[#0a0a0a] font-medium hover:bg-[#e5ff4d] transition-colors"
                 >
                   Повторить загрузку
                 </button>
@@ -1187,7 +1123,7 @@ export default function MapPage() {
             </div>
           )}
           {!scriptError && mapReady && (
-            <div className="absolute bottom-1 right-1 px-2 py-1 bg-black/80 text-[10px] text-gray-500 border border-[#333] rounded z-[400]">
+            <div className="absolute bottom-1 right-1 px-2 py-1 bg-black/80 text-[10px] text-neutral-500 border border-white/10 rounded z-[400]">
               © <a href="https://yandex.ru/maps" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-gray-300">Яндекс.Карты</a>
             </div>
           )}
@@ -1208,7 +1144,7 @@ export default function MapPage() {
           }}
         >
           <div
-            className="bg-[#141414] border border-[#444] rounded-3xl max-w-md w-full p-6 text-white shadow-2xl"
+            className="bg-neutral-900/90 backdrop-blur-xl border border-white/10 rounded-3xl max-w-md w-full p-6 text-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 id="complete-trip-title" className="text-lg font-bold mb-3">
@@ -1220,7 +1156,7 @@ export default function MapPage() {
             <label className="flex items-center gap-3 cursor-pointer text-sm text-gray-300 mb-6">
               <input
                 type="checkbox"
-                className="size-4 rounded border-gray-500 text-white accent-white shrink-0"
+                className="size-4 rounded border-neutral-500 accent-[#D4FF00] shrink-0"
                 checked={useCarsikiOnComplete}
                 onChange={(e) => setUseCarsikiOnComplete(e.target.checked)}
               />
@@ -1232,7 +1168,7 @@ export default function MapPage() {
               <button
                 type="button"
                 disabled={completeMut.isPending}
-                className="flex-1 min-w-[8rem] h-11 rounded-2xl border border-[#555] text-gray-200 text-sm font-medium hover:border-gray-400 disabled:opacity-50"
+                className="flex-1 min-w-[8rem] h-11 rounded-2xl border border-white/15 text-neutral-200 text-sm font-medium hover:border-[#D4FF00]/40 disabled:opacity-50"
                 onClick={() => {
                   setCompleteTripDialogOpen(false)
                   setUseCarsikiOnComplete(false)
@@ -1243,7 +1179,7 @@ export default function MapPage() {
               <button
                 type="button"
                 disabled={completeMut.isPending}
-                className="flex-1 min-w-[8rem] h-11 rounded-2xl bg-white text-black text-sm font-bold hover:bg-gray-200 disabled:opacity-50"
+                className="flex-1 min-w-[8rem] h-11 rounded-2xl bg-[#D4FF00] text-[#0a0a0a] text-sm font-bold hover:bg-[#e5ff4d] disabled:opacity-50"
                 onClick={() => completeMut.mutate()}
               >
                 {completeMut.isPending ? '…' : 'Завершить'}
@@ -1260,7 +1196,7 @@ export default function MapPage() {
           aria-modal="true"
           aria-labelledby="receipt-title"
         >
-          <div className="bg-[#141414] border border-[#444] rounded-3xl max-w-md w-full p-6 text-white shadow-2xl">
+          <div className="bg-neutral-900/90 backdrop-blur-xl border border-white/10 rounded-3xl max-w-md w-full p-6 text-white shadow-2xl">
             <h3 id="receipt-title" className="text-xl font-bold mb-1">
               {receipt.startedAt ? 'Поездка завершена' : 'Бронь закрыта'}
             </h3>
@@ -1282,7 +1218,7 @@ export default function MapPage() {
                 <span>Поминутно</span>
                 <span className="text-white font-mono">{receipt.perMinuteTotal.toFixed(2)} BYN</span>
               </li>
-              <li className="flex justify-between gap-4 pt-2 border-t border-[#333] text-base font-bold text-white">
+              <li className="flex justify-between gap-4 pt-2 border-t border-white/10 text-base font-bold text-white">
                 <span>Итого</span>
                 <span className="font-mono">{receipt.total.toFixed(2)} BYN</span>
               </li>
@@ -1316,7 +1252,7 @@ export default function MapPage() {
             <button
               type="button"
               onClick={() => setReceipt(null)}
-              className="w-full h-11 rounded-2xl bg-white text-black font-bold hover:bg-gray-200 transition-colors"
+              className="w-full h-11 rounded-2xl bg-[#D4FF00] text-[#0a0a0a] font-bold hover:bg-[#e5ff4d] transition-colors"
             >
               Закрыть
             </button>

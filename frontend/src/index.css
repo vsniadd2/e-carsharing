@@ -2,19 +2,20 @@
 
 @theme {
   --font-display: "Space Grotesk", sans-serif;
-  --font-body: "Noto Sans", sans-serif;
-  /* Экраны входа/регистрации (отдельная палитра), префикс eco-auth — не путать с primary сайта */
+  /* Тело — как в map.txt (Luminous Velocity) */
+  --font-body: "Manrope", system-ui, sans-serif;
+  /* Вход/регистрация — в одной тональности с map.txt (Luminous Velocity) */
   --font-eco-auth-body: "Manrope", system-ui, sans-serif;
-  --color-eco-auth-surface: #131313;
-  --color-eco-auth-primary: #e0e0e0;
-  --color-eco-auth-on-primary: #2f3131;
-  --color-eco-auth-secondary: #bfc7cf;
-  --color-eco-auth-on-surface: #e5e2e1;
-  --color-eco-auth-on-surface-variant: #c4c7ca;
-  --color-eco-auth-container-highest: #353534;
-  --color-eco-auth-outline-variant: #44474a;
-  --color-eco-auth-tertiary: #ffd9b8;
-  --color-eco-auth-on-tertiary-container: #794400;
+  --color-eco-auth-surface: #0e0e0e;
+  --color-eco-auth-primary: #d4ff00;
+  --color-eco-auth-on-primary: #0a0a0a;
+  --color-eco-auth-secondary: #adaaaa;
+  --color-eco-auth-on-surface: #ffffff;
+  --color-eco-auth-on-surface-variant: #adaaaa;
+  --color-eco-auth-container-highest: #1a1919;
+  --color-eco-auth-outline-variant: #484847;
+  --color-eco-auth-tertiary: #d1fc00;
+  --color-eco-auth-on-tertiary-container: #4c5d00;
   --color-primary: #000000;
   --color-primary-foreground: #ffffff;
   --color-background-light: #ffffff;
@@ -27,6 +28,11 @@
   --color-volt-primary: #00e05e;
   --color-volt-bg-dark: #0f2317;
   --color-volt-bg-light: #f5f8f7;
+  /* Экран карты (map.txt — Luminous Velocity) */
+  --color-map-neon: #d4ff00;
+  --color-map-neon-text: #546600;
+  --color-map-bg: #0e0e0e;
+  --color-map-tertiary-glow: #6bfe9c;
 }
 
 :root {

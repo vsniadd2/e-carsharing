@@ -11,6 +11,7 @@ import ContentPage from './pages/ContentPage'
 import TariffsPage from './pages/TariffsPage'
 import RewardsPage from './pages/RewardsPage'
 import SupportPage from './pages/SupportPage'
+import SubscriptionsPage from './pages/SubscriptionsPage'
 import AdminPage from './pages/AdminPage'
 
 function App() {
@@ -28,6 +29,7 @@ function App() {
             <Route path="/tariffs" element={<TariffsPage />} />
             <Route path="/rewards" element={<RewardsPage />} />
             <Route path="/support" element={<ProtectedRoute><SupportPage /></ProtectedRoute>} />
+            <Route path="/subscriptions" element={<ProtectedRoute><SubscriptionsPage /></ProtectedRoute>} />
             <Route path="/:slug" element={<ContentPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -35,7 +35,7 @@ export default function LoginPage() {
       <section className="relative z-10 w-full layout-shell layout-shell--form">
         <div className="eco-auth-glass rounded-xl p-5 sm:p-8 shadow-[0px_24px_48px_rgba(0,0,0,0.4)] border border-eco-auth-outline-variant/10">
           <div className="mb-10">
-            <h2 className="font-display text-3xl font-bold tracking-tight text-eco-auth-primary mb-2">Вход</h2>
+            <h2 className="font-display text-3xl font-bold tracking-tight text-white mb-2">Вход</h2>
             <p className="text-eco-auth-secondary text-sm font-light">Войдите в аккаунт EcoRide.</p>
           </div>
 
@@ -105,7 +105,7 @@ export default function LoginPage() {
               Нет аккаунта?{' '}
               <Link
                 to="/register"
-                className="text-eco-auth-primary font-bold ml-1 hover:underline underline-offset-4 decoration-eco-auth-primary/30"
+                className="text-[#D4FF00] font-bold ml-1 hover:underline underline-offset-4 decoration-[#D4FF00]/40"
               >
                 Зарегистрироваться
               </Link>

@@ -5,11 +5,12 @@
 
 export type FleetMapMarkerKind = 'car' | 'bike' | 'scooter' | 'charging'
 
+/** Палитра экрана карты (map.txt — неон + приглушённые самокат/вел) */
 const ACCENT: Record<FleetMapMarkerKind, string> = {
-  car: '#38bdf8',
-  bike: '#c084fc',
-  scooter: '#fb923c',
-  charging: '#4ade80',
+  car: '#D4FF00',
+  bike: '#a3a3a3',
+  scooter: '#525252',
+  charging: '#6bfe9c',
 }
 
 /** Lucide paths, viewBox 0 0 24 24, stroke-2 cap-round join-round */
@@ -53,9 +54,29 @@ export function buildFleetMapMarkerDataUrl(opts: {
   const statusStroke =
     occ === 'reserved' ? '#f59e0b' : occ === 'inuse' ? '#e11d48' : accent
 
-  const ring = selected ? 5.5 : occ !== 'available' ? 4 : 2.5
-  const headStroke = selected ? '#fde047' : statusStroke
+  const ring =
+    selected ? 5.5 : occ !== 'available' ? 4 : kind === 'car' ? 3 : kind === 'scooter' ? 2 : 2.5
+  const headStroke = selected ? '#D4FF00' : statusStroke
   const glyph = ICON_GLYPH[kind]
+
+  const glyphStroke =
+    kind === 'charging'
+      ? '#6bfe9c'
+      : kind === 'car' && occ === 'available'
+        ? '#D4FF00'
+        : kind === 'scooter' && occ === 'available'
+          ? '#ffffff'
+          : kind === 'bike' && occ === 'available'
+            ? '#e5e5e5'
+            : '#f1f5f9'
+
+  const headFill = kind === 'car' && occ === 'available' ? '#000000' : '#0f172a'
+
+  /** Неоновое свечение для доступных авто */
+  const neonGlow =
+    kind === 'car' && occ === 'available'
+      ? `<circle cx="28" cy="21" r="26" fill="none" stroke="#D4FF00" stroke-width="1.5" opacity="0.45"/>`
+      : ''
 
   /** Внешнее кольцо цвета статуса, если занято или выбран занятый */
   const statusHalo =
@@ -74,8 +95,8 @@ export function buildFleetMapMarkerDataUrl(opts: {
   const barMax = 36
   const barW =
     batteryPercent == null ? 0 : Math.max(2, Math.round((barMax * batteryPercent) / 100))
-  const barFill = lowBattery ? '#f97316' : '#22c55e'
-  const badgeStroke = lowBattery ? '#ea580c' : '#475569'
+  const barFill = lowBattery ? '#f97316' : '#6bfe9c'
+  const badgeStroke = lowBattery ? '#ea580c' : '#525252'
 
   const barHtml =
     showBar
@@ -85,8 +106,8 @@ export function buildFleetMapMarkerDataUrl(opts: {
 
   const selectHalo =
     selected
-      ? `<circle cx="28" cy="21" r="25" fill="none" stroke="#facc15" stroke-width="2.25" opacity="0.95"/>
-         <circle cx="28" cy="21" r="22" fill="none" stroke="#ffffff" stroke-width="1.25" opacity="0.55"/>`
+      ? `<circle cx="28" cy="21" r="25" fill="none" stroke="#D4FF00" stroke-width="2.25" opacity="0.95"/>
+         <circle cx="28" cy="21" r="22" fill="none" stroke="#ffffff" stroke-width="1.25" opacity="0.45"/>`
       : ''
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="56" height="68" viewBox="0 0 56 68">
@@ -96,10 +117,11 @@ export function buildFleetMapMarkerDataUrl(opts: {
     </filter>
   </defs>
   <g filter="url(#sd)">
+    ${neonGlow}
     ${statusHalo}
     ${selectHalo}
-    <circle cx="28" cy="21" r="20" fill="#0f172a" stroke="${headStroke}" stroke-width="${ring}"/>
-    <g transform="translate(16,9)" fill="none" stroke="#f1f5f9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="28" cy="21" r="20" fill="${headFill}" stroke="${headStroke}" stroke-width="${ring}"/>
+    <g transform="translate(16,9)" fill="none" stroke="${glyphStroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       ${glyph}
     </g>
   </g>

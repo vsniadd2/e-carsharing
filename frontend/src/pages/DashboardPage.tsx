@@ -12,6 +12,7 @@ import {
 } from '../api/fleet'
 import { detectPaymentSystemFromCardNumber } from '../lib/cardBin'
 import { CardBrandMark } from '../components/CardBrandMark'
+import { LV_BRAND } from '../lib/siteBrand'
 
 function digitsOnly(s: string): string {
   return s.replace(/\D/g, '')
@@ -56,7 +57,6 @@ type DepositUiPhase = 'form' | 'processing' | 'approved'
 
 export default function DashboardPage() {
   const [searchRides, setSearchRides] = useState('')
-  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [depositAmount, setDepositAmount] = useState('25')
   const [depositModalOpen, setDepositModalOpen] = useState(false)
   const [modalAmount, setModalAmount] = useState('25')
@@ -67,7 +67,7 @@ export default function DashboardPage() {
   const [modalError, setModalError] = useState<string | null>(null)
   const [depositUiPhase, setDepositUiPhase] = useState<DepositUiPhase>('form')
   const walletRef = useRef<HTMLDivElement>(null)
-  const { user, logout, token, isAccessTokenValid, refreshProfile } = useAuth()
+  const { user, token, isAccessTokenValid, refreshProfile } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
@@ -286,15 +286,8 @@ export default function DashboardPage() {
     return h.vehicleName.toLowerCase().includes(q)
   })
 
-  const handleLogout = () => {
-    logout()
-    navigate('/', { replace: true })
-  }
-
-  const closeMobileNav = () => setMobileNavOpen(false)
-
   return (
-    <div className="bg-black text-slate-100 font-body antialiased flex-1 min-h-0 flex overflow-hidden w-full relative">
+    <div className="bg-[color:var(--color-map-bg)] text-slate-100 font-body antialiased flex-1 min-h-0 flex flex-col w-full relative min-w-0">
       {depositModalOpen ? (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/75"
@@ -454,7 +447,7 @@ export default function DashboardPage() {
                 <button
                   type="submit"
                   disabled={depositFlowBusy}
-                  className="flex-1 min-w-[8rem] px-4 py-2.5 rounded-xl bg-white text-black font-bold text-sm hover:bg-neutral-200 disabled:opacity-50"
+                  className="flex-1 min-w-[8rem] px-4 py-2.5 rounded-full bg-[#D4FF00] text-[#0a0a0a] font-bold text-sm hover:bg-[#e5ff4d] disabled:opacity-50 shadow-[0_0_16px_rgba(212,255,0,0.2)]"
                 >
                   {depositUiPhase === 'processing'
                     ? 'Ожидание ответа…'
@@ -477,98 +470,8 @@ export default function DashboardPage() {
           </div>
         </div>
       ) : null}
-      {mobileNavOpen && (
-        <button
-          type="button"
-          className="fixed inset-0 z-[55] bg-black/60 lg:hidden"
-          aria-label="Закрыть меню"
-          onClick={closeMobileNav}
-        />
-      )}
-      <aside
-        className={`fixed lg:relative z-[60] top-0 bottom-0 left-0 w-64 max-w-[min(16rem,88vw)] bg-black border-r border-[#262626] flex flex-col shrink-0 min-h-0 h-full self-stretch transition-transform duration-300 ease-out ${
-          mobileNavOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-        }`}
-      >
-        <div className="flex flex-col h-full p-4 justify-between pt-[max(1rem,env(safe-area-inset-top,0px))] lg:pt-4">
-          <div className="flex flex-col gap-8">
-            <Link to="/" onClick={closeMobileNav} className="flex items-center gap-3 px-2">
-              <div className="w-10 h-10 rounded-2xl bg-white flex items-center justify-center text-black font-bold text-lg font-display">E</div>
-              <div>
-                <h1 className="text-white font-display font-bold text-lg leading-tight">EcoRide</h1>
-                <p className="text-neutral-500 text-xs">Каршеринг</p>
-              </div>
-            </Link>
-            <nav className="flex flex-col gap-2">
-              <Link to="/dashboard" onClick={closeMobileNav} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white text-black group transition-colors">
-                <span className="material-symbols-outlined">dashboard</span>
-                <span className="font-display font-medium text-sm">Дашборд</span>
-              </Link>
-              <Link
-                to="/map"
-                onClick={(e) => {
-                  closeMobileNav()
-                  if (location.pathname === '/map') e.preventDefault()
-                }}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-xl touch-manipulation text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors group"
-              >
-                <span className="material-symbols-outlined group-hover:text-white transition-colors">map</span>
-                <span className="font-display font-medium text-sm">Карта</span>
-              </Link>
-              <Link
-                to="/dashboard#wallet"
-                onClick={closeMobileNav}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-xl touch-manipulation text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors group"
-              >
-                <span className="material-symbols-outlined group-hover:text-white transition-colors">wallet</span>
-                <span className="font-display font-medium text-sm">Кошелёк</span>
-              </Link>
-              <Link
-                to="/dashboard#history"
-                onClick={closeMobileNav}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-xl touch-manipulation text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors group"
-              >
-                <span className="material-symbols-outlined group-hover:text-white transition-colors">history</span>
-                <span className="font-display font-medium text-sm">История поездок</span>
-              </Link>
-              <Link to="/rewards" onClick={closeMobileNav} className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors group">
-                <span className="material-symbols-outlined group-hover:text-white transition-colors">redeem</span>
-                <span className="font-display font-medium text-sm">Награды</span>
-              </Link>
-            </nav>
-          </div>
-          <div className="flex flex-col gap-2">
-            <Link
-              to="/dashboard#settings"
-              onClick={closeMobileNav}
-              className="flex items-center gap-3 px-3 py-2.5 rounded-xl touch-manipulation text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors group"
-            >
-              <span className="material-symbols-outlined group-hover:text-white transition-colors">settings</span>
-              <span className="font-display font-medium text-sm">Настройки</span>
-            </Link>
-            <div className="flex items-center gap-3 mt-4 pt-4 border-t border-[#262626] px-2">
-              <div
-                className="w-8 h-8 rounded-full bg-neutral-700 bg-cover bg-center grayscale shrink-0 flex items-center justify-center text-white text-sm font-bold"
-                aria-hidden
-              >
-                {(user?.name || user?.email || '?').charAt(0).toUpperCase()}
-              </div>
-              <div className="flex flex-col min-w-0">
-                <p className="text-white text-sm font-medium leading-none truncate">{user?.name || user?.email}</p>
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className="text-left text-neutral-400 hover:text-white text-xs mt-1 transition-colors"
-                >
-                  Выйти
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </aside>
 
-      <main className="flex-1 min-h-0 h-full overflow-y-auto w-full relative bg-neutral-950">
+      <main className="flex-1 min-h-0 min-w-0 overflow-y-auto w-full relative bg-neutral-950">
         <div className="layout-shell py-4 md:py-8 flex flex-col gap-6 min-w-0">
           {latestCarsikiNotice ? (
             <div
@@ -589,21 +492,6 @@ export default function DashboardPage() {
               </button>
             </div>
           ) : null}
-          <div className="flex lg:hidden items-center justify-between mb-2 pt-[env(safe-area-inset-top,0px)] gap-2">
-            <Link to="/" onClick={closeMobileNav} className="flex items-center gap-2 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center text-black font-bold shrink-0 font-display text-sm">E</div>
-              <span className="text-white font-display font-bold truncate">EcoRide</span>
-            </Link>
-            <button
-              type="button"
-              className="text-white p-2 rounded-xl hover:bg-neutral-800 shrink-0"
-              aria-expanded={mobileNavOpen}
-              aria-label={mobileNavOpen ? 'Закрыть меню' : 'Открыть меню'}
-              onClick={() => setMobileNavOpen((o) => !o)}
-            >
-              <span className="material-symbols-outlined">{mobileNavOpen ? 'close' : 'menu'}</span>
-            </button>
-          </div>
 
           <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 min-w-0">
             <div className="min-w-0">
@@ -619,7 +507,7 @@ export default function DashboardPage() {
                 <span className="material-symbols-outlined text-[20px]">calendar_month</span>
                 {periodLabel}
               </div>
-              <Link to="/map" className="flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-white hover:bg-neutral-200 text-black rounded-xl transition-colors font-display text-sm font-medium shadow-[0_0_15px_rgba(255,255,255,0.1)] min-h-[2.5rem] flex-1 sm:flex-initial min-w-[10rem]">
+              <Link to="/map" className="flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-[#D4FF00] hover:bg-[#e5ff4d] text-[#0a0a0a] rounded-full transition-colors font-display text-sm font-bold shadow-[0_0_16px_rgba(212,255,0,0.25)] min-h-[2.5rem] flex-1 sm:flex-initial min-w-[10rem]">
                 <span className="material-symbols-outlined text-[20px]">add</span>
                 Новая поездка
               </Link>
@@ -661,7 +549,7 @@ export default function DashboardPage() {
                   openDepositModal(String(Math.floor(n)))
                 }}
                 disabled={depositMut.isPending || !token}
-                className="px-4 py-2 rounded-xl bg-white text-black font-bold text-sm hover:bg-neutral-200 disabled:opacity-50"
+                className="px-4 py-2 rounded-full bg-[#D4FF00] text-[#0a0a0a] font-bold text-sm hover:bg-[#e5ff4d] disabled:opacity-50 shadow-[0_0_14px_rgba(212,255,0,0.2)]"
               >
                 Пополнить картой
               </button>
@@ -744,11 +632,17 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="col-span-1 bg-[#171717] border border-[#262626] rounded-3xl p-6 flex flex-col min-h-[200px]">
+            <div
+              id="notifications"
+              className="scroll-mt-28 col-span-1 bg-[#171717] border border-[#262626] rounded-3xl p-6 flex flex-col min-h-[200px]"
+            >
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-white font-display font-bold text-sm uppercase tracking-wide">Уведомления</h4>
                 <span className="material-symbols-outlined text-neutral-400 text-[20px]">notifications</span>
               </div>
+              <p className="text-[10px] text-neutral-600 uppercase tracking-wide mb-3">
+                Как и в колокольчике шапки: последние 7 дней (старое удаляется автоматически)
+              </p>
               {!token ? (
                 <p className="text-neutral-500 text-sm">Войдите, чтобы видеть уведомления</p>
               ) : notificationsError ? (
@@ -893,7 +787,7 @@ export default function DashboardPage() {
                       ? 'Не удалось загрузить парк с сервера. Откройте карту и попробуйте снова.'
                       : `Сейчас в парке: ${fleetVehicles.length} ТС (данные API).`}
                   </p>
-                  <Link to="/map" className="w-full py-3 bg-white hover:bg-neutral-200 text-black rounded-xl font-display font-medium transition-colors shadow-lg shadow-white/10 text-center block">
+                  <Link to="/map" className="w-full py-3 bg-[#D4FF00] hover:bg-[#e5ff4d] text-[#0a0a0a] rounded-full font-display font-bold transition-colors shadow-[0_0_20px_rgba(212,255,0,0.3)] text-center block">
                     Открыть карту
                   </Link>
                 </div>
@@ -903,7 +797,7 @@ export default function DashboardPage() {
         </div>
 
         <footer className="mt-8 pb-[max(2rem,env(safe-area-inset-bottom))] border-t border-[#262626] pt-6 flex flex-col md:flex-row justify-between items-center text-neutral-500 text-xs gap-4 layout-shell">
-          <p>© {new Date().getFullYear()} EcoRide</p>
+          <p>© {new Date().getFullYear()} {LV_BRAND}</p>
           <div className="flex gap-6">
             <Link className="hover:text-neutral-300 transition-colors" to="/support">
               Поддержка
