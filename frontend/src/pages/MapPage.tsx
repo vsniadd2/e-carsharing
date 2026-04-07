@@ -1,6 +1,9 @@
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import * as signalR from '@microsoft/signalr'
+import { rentalHubUrl } from '../lib/apiOrigin'
+import { createSignalRLoggerIgnoringNegotiationAbort, isSignalRNegotiationAbortError } from '../lib/signalRStrictMode'
 import { useAuth } from '../context/AuthContext'
 import {
   fetchPublicVehicles,
@@ -12,9 +15,14 @@ import {
   completeRental,
   cancelReservation,
   type ApiVehicle,
+  type RentalActiveDto,
   type TripReceiptDto,
 } from '../api/fleet'
+import QRCode from 'react-qr-code'
 import { playNotifySound } from '../lib/notifyBeep'
+import { buildFleetMapMarkerDataUrl, type FleetMapMarkerKind } from '../lib/mapFleetMarker'
+import { VEHICLE_CLASS_LABEL_RU } from '../lib/tariffCaps'
+import { buildVehicleMapDeepLink } from '../lib/vehicleQrLink'
 
 type VehicleFilter = 'all' | 'scooters' | 'bikes' | 'cars' | 'charging'
 
@@ -35,125 +43,41 @@ export interface Vehicle {
   fleetStatus?: string
   /** Адрес (для зарядных станций / заправок) */
   address?: string
+  /** URL фото для шапки карточки (с API или fallback по типу) */
+  photoUrl?: string
+  /** Текст описания в карточке */
+  description?: string
+  /** Класс тарифа (авто): economy | comfort | premium */
+  vehicleClass?: string
 }
 
 const MINSK_CENTER: [number, number] = [53.9045, 27.5615]
 
-const OPEN_METEO_URL = 'https://api.open-meteo.com/v1/forecast'
-
-interface WeatherData {
-  temp: number
-  weatherCode: number
-  location: string
-  date: string
+const VEHICLE_HERO_FALLBACK: Record<Exclude<VehicleType, 'charging'>, string> = {
+  scooter:
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/Electric_kick_scooter_in_Paris_2018.jpg/1280px-Electric_kick_scooter_in_Paris_2018.jpg',
+  bike: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Electric_bicycle_at_station_%282%29.jpg/1280px-Electric_bicycle_at_station_%282%29.jpg',
+  car: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d6/Tesla_Model_3_parked%2C_front_left_corner.jpg/1280px-Tesla_Model_3_parked%2C_front_left_corner.jpg',
 }
 
-// Реальные ЭЗС Минска — координаты из OpenStreetMap (Overpass API, февраль 2026)
-const CHARGING_STATIONS: Vehicle[] = [
-  { id: 'CH-001', type: 'charging', position: [53.93777, 27.54887], name: 'VADI AVTO', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-002', type: 'charging', position: [53.86459, 27.48214], name: 'Белоруснефть № 022', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-003', type: 'charging', position: [53.88403, 27.56289], name: 'Malanka (Рокоссовского р-н)', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-004', type: 'charging', position: [53.93995, 27.57206], name: 'Malanka (Беломорская)', address: 'г. Минск, ул. Беломорская', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-005', type: 'charging', position: [53.91776, 27.50256], name: 'Системы нормативной безопасности', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-006', type: 'charging', position: [53.90284, 27.55705], name: 'Eleven (Московский р-н)', address: 'г. Минск, Московский р-н', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-007', type: 'charging', position: [53.91999, 27.58240], name: 'Eleven (самокаты)', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-008', type: 'charging', position: [53.86010, 27.47825], name: 'Malanka (Газеты Звезда)', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-009', type: 'charging', position: [53.89910, 27.56551], name: 'Белоруснефть № 011', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-010', type: 'charging', position: [53.91002, 27.54599], name: 'Белоруснефть № 04', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-011', type: 'charging', position: [53.91208, 27.53781], name: 'Белоруснефть № 014', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-012', type: 'charging', position: [53.90816, 27.49451], name: 'Белоруснефть № 013', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-013', type: 'charging', position: [53.93170, 27.51192], name: 'Белоруснефть № 01', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-014', type: 'charging', position: [53.93764, 27.49131], name: 'Белоруснефть № 02', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-015', type: 'charging', position: [53.94493, 27.59921], name: 'Белоруснефть № 012', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-016', type: 'charging', position: [53.87154, 27.57227], name: 'ЭЗС (Рокоссовского)', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-017', type: 'charging', position: [53.93977, 27.46549], name: 'Malanka № 074', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-018', type: 'charging', position: [53.89125, 27.55266], name: 'Белоруснефть № 023', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-019', type: 'charging', position: [53.89395, 27.55014], name: 'Белоруснефть № 033', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-020', type: 'charging', position: [53.91124, 27.54913], name: 'Malanka № 015', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-021', type: 'charging', position: [53.89121, 27.55287], name: 'Белоруснефть № 024', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-022', type: 'charging', position: [53.92373, 27.51767], name: 'Белоруснефть № 016', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-023', type: 'charging', position: [53.93427, 27.48354], name: 'Белоруснефть № 017', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-024', type: 'charging', position: [53.93026, 27.57963], name: 'Белоруснефть № 026', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-025', type: 'charging', position: [53.92237, 27.52638], name: 'Белоруснефть № 028', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-026', type: 'charging', position: [53.87832, 27.53354], name: 'Белоруснефть № 031', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-027', type: 'charging', position: [53.89609, 27.55700], name: 'Белоруснефть № 030', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-028', type: 'charging', position: [53.93061, 27.64696], name: 'Белоруснефть № 035', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-029', type: 'charging', position: [53.89445, 27.47500], name: 'Белоруснефть № 052', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-030', type: 'charging', position: [53.89822, 27.52594], name: 'Белоруснефть № 068', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-031', type: 'charging', position: [53.91144, 27.54479], name: 'Белоруснефть № 029', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-032', type: 'charging', position: [53.90633, 27.49318], name: 'Белоруснефть № 043', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-033', type: 'charging', position: [53.91328, 27.49470], name: 'Malanka № 058', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-034', type: 'charging', position: [53.89707, 27.55024], name: 'Malanka № 032', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-035', type: 'charging', position: [53.89718, 27.55594], name: 'Malanka № 034', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-036', type: 'charging', position: [53.92718, 27.49674], name: 'Белоруснефть № 055', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-037', type: 'charging', position: [53.89724, 27.54587], name: 'Белоруснефть № 040', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-038', type: 'charging', position: [53.93076, 27.54816], name: 'Белоруснефть № 047', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-039', type: 'charging', position: [53.89786, 27.56317], name: 'Белоруснефть № 050', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-040', type: 'charging', position: [53.85202, 27.53792], name: 'Белоруснефть № 066', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-041', type: 'charging', position: [53.86000, 27.57386], name: 'Белоруснефть № 039', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-042', type: 'charging', position: [53.88604, 27.58202], name: 'Malanka № 042', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-043', type: 'charging', position: [53.85625, 27.61036], name: 'Malanka № 046', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-044', type: 'charging', position: [53.90320, 27.55887], name: 'Malanka № 054', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-045', type: 'charging', position: [53.90093, 27.54162], name: 'Белоруснефть № 062', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-046', type: 'charging', position: [53.90117, 27.56975], name: 'Белоруснефть № 045', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-047', type: 'charging', position: [53.90990, 27.57883], name: 'Malanka № 070', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-048', type: 'charging', position: [53.86376, 27.48688], name: 'Белоруснефть № 061', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-049', type: 'charging', position: [53.91849, 27.60382], name: 'Белоруснефть № 041', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-050', type: 'charging', position: [53.90901, 27.48452], name: 'Белоруснефть № 059', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-051', type: 'charging', position: [53.90386, 27.50310], name: 'Белоруснефть № 063', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-052', type: 'charging', position: [53.91534, 27.46831], name: 'Malanka № 057', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-053', type: 'charging', position: [53.90404, 27.45658], name: 'Белоруснефть № 069', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-054', type: 'charging', position: [53.91555, 27.56637], name: 'Белоруснефть № 065', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-055', type: 'charging', position: [53.91764, 27.50184], name: 'Белоруснефть № 067', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-056', type: 'charging', position: [53.86382, 27.45490], name: 'Белоруснефть № 051', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-057', type: 'charging', position: [53.89413, 27.51990], name: 'Malanka № 072', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-058', type: 'charging', position: [53.89483, 27.55547], name: 'Белоруснефть № 049', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-059', type: 'charging', position: [53.93516, 27.49358], name: 'Белоруснефть № 073', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-060', type: 'charging', position: [53.88439, 27.55196], name: 'Белоруснефть № 086', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-061', type: 'charging', position: [53.91060, 27.53614], name: 'Malanka № 082', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-062', type: 'charging', position: [53.88923, 27.57754], name: 'Белоруснефть № 075', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-063', type: 'charging', position: [53.90703, 27.57343], name: 'Malanka № 078', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-064', type: 'charging', position: [53.86136, 27.58856], name: 'Malanka № 094', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-065', type: 'charging', position: [53.89958, 27.54287], name: 'Malanka № 077', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-066', type: 'charging', position: [53.93352, 27.50272], name: 'Malanka № 080', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-067', type: 'charging', position: [53.94788, 27.45556], name: 'Malanka № 107', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-068', type: 'charging', position: [53.93351, 27.50274], name: 'Malanka № 083', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-069', type: 'charging', position: [53.93559, 27.58027], name: 'Malanka № 095', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-070', type: 'charging', position: [53.86736, 27.46558], name: 'Malanka № 099', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-071', type: 'charging', position: [53.91642, 27.45826], name: 'Malanka № 102', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-072', type: 'charging', position: [53.93247, 27.45793], name: 'Malanka № 092', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-073', type: 'charging', position: [53.93469, 27.45858], name: 'Malanka № 093', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-074', type: 'charging', position: [53.89568, 27.57159], name: 'Malanka № 116', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-075', type: 'charging', position: [53.89129, 27.52243], name: 'Porsche Destination', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-076', type: 'charging', position: [53.90465, 27.45950], name: 'Evika (Победителей)', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-077', type: 'charging', position: [53.90279, 27.61702], name: 'Evika (Восток)', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-078', type: 'charging', position: [53.86512, 27.46828], name: 'Малanka (юго-запад)', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-079', type: 'charging', position: [53.89828, 27.55618], name: 'Malanka (центр)', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-080', type: 'charging', position: [53.90940, 27.45412], name: 'Белоруснефть (з-д Победителей)', address: 'г. Минск, пр. Победителей', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-081', type: 'charging', position: [53.92246, 27.51395], name: 'Malanka (Сухаревская)', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-082', type: 'charging', position: [53.88402, 27.47946], name: 'Malanka (юго-запад 2)', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-083', type: 'charging', position: [53.88481, 27.45021], name: 'Malanka (Беловежская)', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-084', type: 'charging', position: [53.91686, 27.58773], name: 'BatteryFly №1', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-085', type: 'charging', position: [53.91689, 27.58779], name: 'BatteryFly №2', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-086', type: 'charging', position: [53.91646, 27.58662], name: 'Malanka (Независимости)', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-087', type: 'charging', position: [53.87505, 27.59735], name: 'Malanka № 076', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-088', type: 'charging', position: [53.88679, 27.57560], name: 'Malanka № 105', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-089', type: 'charging', position: [53.89523, 27.54591], name: 'Malanka № 087', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-090', type: 'charging', position: [53.91752, 27.54951], name: 'Malanka № 079', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-091', type: 'charging', position: [53.90737, 27.54998], name: 'Белоруснефть № 085', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-092', type: 'charging', position: [53.90931, 27.57009], name: 'Белоруснефть № 084', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-093', type: 'charging', position: [53.91716, 27.54368], name: 'Malanka № 044', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-094', type: 'charging', position: [53.90396, 27.63366], name: 'Malanka (восток)', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-095', type: 'charging', position: [53.92800, 27.64506], name: 'Белоруснефть (Минск-Арена)', address: 'г. Минск, пр. Победителей, Минск-Арена', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-096', type: 'charging', position: [53.83004, 27.45457], name: 'Malanka № 080 доп', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-097', type: 'charging', position: [53.87475, 27.63727], name: 'Pandora EV', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-098', type: 'charging', position: [53.87439, 27.47949], name: 'Evika (юго-запад)', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-099', type: 'charging', position: [53.89505, 27.46143], name: 'Evika (запад)', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-100', type: 'charging', position: [53.86358, 27.46965], name: 'Evika (Притыцкого)', priceStart: '—', pricePerMin: '—' },
-  { id: 'CH-101', type: 'charging', position: [53.88301, 27.45457], name: 'Malanka (Беловежская 2)', priceStart: '—', pricePerMin: '—' },
-]
+const CHARGING_CARD_HERO =
+  'https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Charging_station_of_Tesla_in_Shanghai.jpg/1280px-Charging_station_of_Tesla_in_Shanghai.jpg'
+
+function vehicleCardHeroImage(v: Vehicle): string {
+  if (v.type === 'charging') return CHARGING_CARD_HERO
+  return v.photoUrl?.trim() || VEHICLE_HERO_FALLBACK[v.type]
+}
+
+function mapMarkerHint(v: Vehicle): string {
+  if (v.type === 'charging') return v.name
+  const fs = (v.fleetStatus ?? 'available').toLowerCase()
+  if (fs === 'reserved') return `${v.name} · Забронировано`
+  if (fs === 'inuse') return `${v.name} · В поездке`
+  return v.name
+}
 
 function mapApiVehicleToVehicle(v: ApiVehicle): Vehicle {
+  const isCharging = v.type === 'charging'
   return {
     id: v.id,
     type: v.type as VehicleType,
@@ -162,27 +86,44 @@ function mapApiVehicleToVehicle(v: ApiVehicle): Vehicle {
     battery: v.battery != null ? Number(v.battery) : undefined,
     rangeKm: v.rangeKm ?? undefined,
     seats: v.seats ?? undefined,
-    priceStart: `${Number(v.priceStart).toFixed(2)} BYN`,
-    pricePerMin: `${Number(v.pricePerMinute).toFixed(2)} BYN/мин`,
+    priceStart: isCharging ? '—' : `${Number(v.priceStart).toFixed(2)} BYN`,
+    pricePerMin: isCharging ? '—' : `${Number(v.pricePerMinute).toFixed(2)} BYN/мин`,
     lowBattery: v.lowBattery,
     fleetStatus: v.status,
+    photoUrl: v.photoUrl?.trim() || undefined,
+    description: v.description?.trim() || undefined,
+    vehicleClass: v.type === 'car' && v.vehicleClass ? v.vehicleClass : undefined,
   }
-}
-
-function getVehicleIconName(type: VehicleType): string {
-  return type === 'scooter' ? 'electric_scooter' : type === 'bike' ? 'pedal_bike' : type === 'car' ? 'directions_car' : 'ev_station'
 }
 
 const YANDEX_MAPS_API_KEY = '83bb1cb1-7dc7-4552-bd60-439f4cecb36d'
 const YANDEX_SCRIPT_ID = 'yandex-maps-api-script'
 const YANDEX_SCRIPT_URL_21 = `https://api-maps.yandex.ru/2.1/?apikey=${encodeURIComponent(YANDEX_MAPS_API_KEY)}&lang=ru_RU`
 
+const sidebarNavClass =
+  'flex items-center gap-3 px-3 sm:px-4 py-3 rounded-xl touch-manipulation select-none transition-colors'
+
+/** Метка на Яндекс.Картах (типы пакета неполные). */
+type YMapPlacemark = {
+  options: { set: (key: string | Record<string, unknown>, value?: unknown) => void }
+  geometry: { setCoordinates: (c: [number, number]) => void }
+  properties: { set: (key: string, value: unknown) => void }
+  events: { add: (event: string, handler: () => void) => void }
+}
+
+function formatReservationCountdown(totalSec: number): string {
+  const m = Math.floor(totalSec / 60)
+  const s = totalSec % 60
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
 export default function MapPage() {
-  const { token, user, refreshProfile } = useAuth()
+  const { token, user, isAccessTokenValid, refreshProfile } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
-  const [filter, setFilter] = useState<VehicleFilter>('all')
+  const [filter, setFilter] = useState<VehicleFilter>('cars')
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null)
   const [mapReady, setMapReady] = useState(false)
   const [scriptError, setScriptError] = useState<string | null>(null)
@@ -190,12 +131,27 @@ export default function MapPage() {
   const yandexMapRef = useRef<InstanceType<Window['ymaps']['Map']> | null>(null)
   const initCalledRef = useRef(false)
   const [retryTrigger, setRetryTrigger] = useState(0)
-  const [weather, setWeather] = useState<WeatherData | null>(null)
-  const [weatherError, setWeatherError] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [mapQuery, setMapQuery] = useState('')
+  const [mapFilterOpen, setMapFilterOpen] = useState(false)
+  const [mapOnlyAvailable, setMapOnlyAvailable] = useState(false)
   const [rentalError, setRentalError] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<TripReceiptDto | null>(null)
+  const [useCarsikiOnComplete, setUseCarsikiOnComplete] = useState(false)
+  const [carsikiToast, setCarsikiToast] = useState<string | null>(null)
   const lowBeepDoneRef = useRef(false)
+  /** Актуальный список ТС для клика по метке (без замыкания на старый массив). */
+  const mapFilteredVehiclesRef = useRef<Vehicle[]>([])
+  const placemarksByIdRef = useRef<Map<string, YMapPlacemark>>(new Map())
+  const lastPlacemarkIconHrefRef = useRef<Map<string, string>>(new Map())
+  const [completeTripDialogOpen, setCompleteTripDialogOpen] = useState(false)
+  const [linkCopied, setLinkCopied] = useState(false)
+  const [copyLinkError, setCopyLinkError] = useState<string | null>(null)
+  const [reservationTick, setReservationTick] = useState(0)
+
+  const dismissVehiclePanel = useCallback(() => {
+    setSelectedVehicle(null)
+  }, [])
 
   const { data: apiVehicles = [], isError: vehiclesError } = useQuery({
     queryKey: ['vehicles'],
@@ -205,15 +161,102 @@ export default function MapPage() {
 
   const rentableFleet = useMemo(() => apiVehicles.map(mapApiVehicleToVehicle), [apiVehicles])
 
+  const copyVehicleLink = useCallback(async (href: string) => {
+    try {
+      await navigator.clipboard.writeText(href)
+      setCopyLinkError(null)
+      setLinkCopied(true)
+      window.setTimeout(() => setLinkCopied(false), 2000)
+    } catch {
+      setCopyLinkError('Не удалось скопировать')
+    }
+  }, [])
+
+  useEffect(() => {
+    setLinkCopied(false)
+    setCopyLinkError(null)
+  }, [selectedVehicle?.id])
+
   const { data: activeRental } = useQuery({
     queryKey: ['rental', 'active', token],
     queryFn: () => fetchActiveRental(token!),
-    enabled: Boolean(token),
+    enabled: Boolean(token) && isAccessTokenValid,
+    // Активная поездка: метрики приходят по SignalR (серверный тик RentalUpdated), без опроса HTTP.
     refetchInterval: (q) => {
       const s = q.state.data?.status
-      return s === 'active' || s === 'paused' ? 8_000 : false
+      if (s === 'active' || s === 'paused') return false
+      // Бронь: редкий запасной refetch, если отвалится WebSocket (сервер всё равно снимает бронь по тику).
+      if (s === 'reserved') return 60_000
+      return false
     },
   })
+
+  useEffect(() => {
+    if (activeRental?.status !== 'reserved') return
+    const id = window.setInterval(() => setReservationTick((x) => x + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [activeRental?.status, activeRental?.rentalId])
+
+  const reservationRemainingSec = useMemo(() => {
+    if (activeRental?.status !== 'reserved') return null
+    let endMs = activeRental.reservationExpiresAt ? Date.parse(activeRental.reservationExpiresAt) : NaN
+    if (Number.isNaN(endMs)) {
+      const ra = Date.parse(activeRental.reservedAt)
+      if (!Number.isNaN(ra)) endMs = ra + 20 * 60 * 1000
+    }
+    if (Number.isNaN(endMs)) return null
+    return Math.max(0, Math.floor((endMs - Date.now()) / 1000))
+  }, [
+    activeRental?.status,
+    activeRental?.reservationExpiresAt,
+    activeRental?.reservedAt,
+    activeRental?.rentalId,
+    reservationTick,
+  ])
+
+  useEffect(() => {
+    if (!token) return
+
+    let cancelled = false
+    const conn = new signalR.HubConnectionBuilder()
+      .withUrl(rentalHubUrl(), {
+        accessTokenFactory: () => token,
+        transport: signalR.HttpTransportType.WebSockets,
+      })
+      .configureLogging(createSignalRLoggerIgnoringNegotiationAbort())
+      .withAutomaticReconnect()
+      .build()
+
+    const onRental = (dto: RentalActiveDto | null) => {
+      queryClient.setQueryData(['rental', 'active', token], dto)
+      void refreshProfile()
+    }
+    const onFleet = () => {
+      void queryClient.invalidateQueries({ queryKey: ['vehicles'] })
+    }
+
+    conn.on('RentalUpdated', onRental)
+    conn.on('FleetUpdated', onFleet)
+
+    void conn
+      .start()
+      .then(() => {
+        if (cancelled) return
+        void queryClient.invalidateQueries({ queryKey: ['vehicles'] })
+        void queryClient.invalidateQueries({ queryKey: ['rental', 'active', token] })
+      })
+      .catch((err: unknown) => {
+        if (cancelled || isSignalRNegotiationAbortError(err)) return
+        console.error(err)
+      })
+
+    return () => {
+      cancelled = true
+      conn.off('RentalUpdated', onRental)
+      conn.off('FleetUpdated', onFleet)
+      void conn.stop()
+    }
+  }, [token, queryClient, refreshProfile])
 
   const reserveMut = useMutation({
     mutationFn: () => reserveVehicle(token!, selectedVehicle!.id),
@@ -221,16 +264,21 @@ export default function MapPage() {
       setRentalError(null)
       await queryClient.invalidateQueries({ queryKey: ['rental'] })
       await queryClient.invalidateQueries({ queryKey: ['vehicles'] })
+      if (token) {
+        await queryClient.refetchQueries({ queryKey: ['rental', 'active', token] })
+      }
       void refreshProfile()
     },
-    onError: (e: Error) => setRentalError(e.message),
+    onError: (e: Error & { code?: string }) => {
+      setRentalError(e.message)
+      if (e.code === 'InsufficientBalance') navigate('/dashboard', { state: { walletHighlight: true } })
+    },
   })
 
   const startMut = useMutation({
     mutationFn: () => startRental(token!),
     onSuccess: async () => {
       setRentalError(null)
-      await queryClient.invalidateQueries({ queryKey: ['rental'] })
       void refreshProfile()
     },
     onError: (e: Error & { code?: string }) => {
@@ -252,13 +300,21 @@ export default function MapPage() {
   })
 
   const completeMut = useMutation({
-    mutationFn: () => completeRental(token!),
+    mutationFn: () => completeRental(token!, useCarsikiOnComplete),
     onSuccess: async (r) => {
+      setCompleteTripDialogOpen(false)
       setReceipt(r)
       setRentalError(null)
       lowBeepDoneRef.current = false
+      setUseCarsikiOnComplete(false)
+      const earned = r.carsikiEarned ?? 0
+      if (earned > 0) {
+        setCarsikiToast(`+${earned} CARSIKI начислено за поездку (100 CARSIKI = 1 BYN)`)
+        window.setTimeout(() => setCarsikiToast(null), 7000)
+      }
       await queryClient.invalidateQueries({ queryKey: ['rental'] })
       await queryClient.invalidateQueries({ queryKey: ['vehicles'] })
+      await queryClient.invalidateQueries({ queryKey: ['notifications'] })
       void refreshProfile()
     },
     onError: (e: Error) => setRentalError(e.message),
@@ -292,70 +348,92 @@ export default function MapPage() {
       playNotifySound()
     }
     if (!activeRental) lowBeepDoneRef.current = false
-  }, [activeRental?.lowBatteryMode, activeRental])
+  }, [activeRental])
 
-  useEffect(() => {
-    const [lat, lon] = MINSK_CENTER
-    const url = `${OPEN_METEO_URL}?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&timezone=Europe/Minsk`
-    fetch(url)
-      .then((res) => res.json())
-      .then((data: { current?: { temperature_2m?: number; weather_code?: number }; timezone?: string }) => {
-        const temp = data.current?.temperature_2m ?? 0
-        const code = data.current?.weather_code ?? 0
-        const now = new Date()
-        const dateStr = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
-        setWeather({
-          temp: Math.round(temp),
-          weatherCode: code,
-          location: 'Минск, Беларусь',
-          date: dateStr,
-        })
-        setWeatherError(null)
-      })
-      .catch(() => setWeatherError('Погода недоступна'))
-  }, [])
-
-  const filteredVehicles = useMemo(() => {
-    if (filter === 'all') return [...CHARGING_STATIONS, ...rentableFleet]
-    if (filter === 'charging') return CHARGING_STATIONS
+  /** Вкладки типа ТС (Все / самокаты / …). */
+  const tabFilteredVehicles = useMemo(() => {
+    if (filter === 'charging') return rentableFleet.filter((v) => v.type === 'charging')
     if (filter === 'scooters') return rentableFleet.filter((v) => v.type === 'scooter')
     if (filter === 'bikes') return rentableFleet.filter((v) => v.type === 'bike')
     if (filter === 'cars') return rentableFleet.filter((v) => v.type === 'car')
-    return [...CHARGING_STATIONS, ...rentableFleet]
+    return rentableFleet.filter((v) => v.type !== 'charging')
   }, [filter, rentableFleet])
+
+  /** Поиск по ID / названию / описанию + «только свободные». */
+  const mapFilteredVehicles = useMemo(() => {
+    let list = tabFilteredVehicles
+    if (mapOnlyAvailable) {
+      list = list.filter(
+        (v) => v.type === 'charging' || v.fleetStatus === 'available' || v.fleetStatus == null || v.fleetStatus === ''
+      )
+    }
+    const q = mapQuery.trim().toLowerCase().replace(/^#/, '')
+    if (!q) return list
+    return list.filter((v) => {
+      const id = v.id.toLowerCase()
+      const name = v.name.toLowerCase()
+      const desc = (v.description ?? '').toLowerCase()
+      return id.includes(q) || name.includes(q) || desc.includes(q)
+    })
+  }, [tabFilteredVehicles, mapOnlyAvailable, mapQuery])
 
   useEffect(() => {
     const vid = searchParams.get('vehicle')
     if (!vid || rentableFleet.length === 0) return
     const v = rentableFleet.find((x) => x.id === vid)
-    if (v) setSelectedVehicle(v)
+    if (v) {
+      if (v.type === 'car') setFilter('cars')
+      else if (v.type === 'bike') setFilter('bikes')
+      else if (v.type === 'scooter') setFilter('scooters')
+      else if (v.type === 'charging') setFilter('charging')
+      setSelectedVehicle(v)
+    }
   }, [searchParams, rentableFleet])
 
   useEffect(() => {
     if (filter !== 'charging') return
-    if (CHARGING_STATIONS.length === 0) return
-    setSelectedVehicle((prev) => (prev?.type === 'charging' ? prev : CHARGING_STATIONS[0]))
-  }, [filter])
+    const list = rentableFleet.filter((v) => v.type === 'charging')
+    setSelectedVehicle((prev) => {
+      if (list.length === 0) return prev?.type === 'charging' ? null : prev
+      if (prev?.type === 'charging' && list.some((c) => c.id === prev.id)) return prev
+      return null
+    })
+  }, [filter, rentableFleet])
 
   useEffect(() => {
-    if (selectedVehicle) return
-    if (filteredVehicles.length === 0) return
-    setSelectedVehicle(filteredVehicles[0])
-  }, [filteredVehicles, selectedVehicle])
+    setSelectedVehicle((prev) => {
+      if (!prev) return prev
+      if (mapFilteredVehicles.some((v) => v.id === prev.id)) return prev
+      return null
+    })
+  }, [mapFilteredVehicles])
 
   // Подгон границ карты при фильтре «Зарядки»
   useEffect(() => {
     const map = yandexMapRef.current
-    if (!map || !mapReady || filter !== 'charging' || filteredVehicles.length === 0) return
+    if (!map || !mapReady || filter !== 'charging' || mapFilteredVehicles.length === 0) return
     const ymaps = window.ymaps
-    const points = filteredVehicles.map((v) => v.position)
+    const points = mapFilteredVehicles.map((v) => v.position)
     try {
       const bounds = ymaps.util.bounds.fromPoints(points)
       map.setBounds(bounds, { checkZoomRange: true, zoomMargin: 40 })
     } catch {
       map.setCenter(MINSK_CENTER, 11)
     }
-  }, [mapReady, filter, filteredVehicles])
+  }, [mapReady, filter, mapFilteredVehicles])
+
+  /** Один результат поиска — центрировать карту */
+  useEffect(() => {
+    const map = yandexMapRef.current
+    const q = mapQuery.trim()
+    if (!map || !mapReady || q.length < 2 || mapFilteredVehicles.length !== 1) return
+    const [lat, lng] = mapFilteredVehicles[0].position
+    try {
+      map.setCenter([lat, lng], Math.max(map.getZoom(), 15))
+    } catch {
+      /* ignore */
+    }
+  }, [mapReady, mapQuery, mapFilteredVehicles])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !mapContainerRef.current) return
@@ -406,6 +484,8 @@ export default function MapPage() {
     document.head.appendChild(script)
 
     return () => {
+      placemarksByIdRef.current.clear()
+      lastPlacemarkIconHrefRef.current.clear()
       if (yandexMapRef.current) {
         yandexMapRef.current.destroy()
         yandexMapRef.current = null
@@ -432,61 +512,130 @@ export default function MapPage() {
 
   useEffect(() => {
     const map = yandexMapRef.current
-    if (!map || !mapReady) return
-    map.geoObjects.removeAll()
+    if (!map || !mapReady || !window.ymaps) return
+
+    mapFilteredVehiclesRef.current = mapFilteredVehicles
     const ymaps = window.ymaps
-    filteredVehicles.forEach((vehicle) => {
+    const MARKER_W = 56
+    const MARKER_H = 68
+    const placemarks = placemarksByIdRef.current
+    const lastHref = lastPlacemarkIconHrefRef.current
+
+    const ordered =
+      selectedVehicle == null
+        ? mapFilteredVehicles
+        : [...mapFilteredVehicles].sort((a, b) => {
+            if (a.id === selectedVehicle.id) return 1
+            if (b.id === selectedVehicle.id) return -1
+            return 0
+          })
+
+    const geo = map.geoObjects as { add: (o: unknown) => void; remove: (o: unknown) => void; removeAll: () => void }
+    const desiredIds = new Set(ordered.map((v) => v.id))
+    for (const [id, pm] of [...placemarks.entries()]) {
+      if (!desiredIds.has(id)) {
+        try {
+          geo.remove(pm)
+        } catch {
+          /* ignore */
+        }
+        placemarks.delete(id)
+        lastHref.delete(id)
+      }
+    }
+
+    for (const vehicle of ordered) {
       const isSelected = selectedVehicle?.id === vehicle.id
-      const isCharging = vehicle.type === 'charging'
-      const isCar = vehicle.type === 'car'
-      const iconName = getVehicleIconName(vehicle.type)
-      const balloonContent = [
-        `<strong>${vehicle.name}</strong>`,
-        `ID: #${vehicle.id}`,
-        vehicle.battery != null ? `Батарея: ${vehicle.battery}%` : '',
-      ]
-        .filter(Boolean)
-        .join('<br/>')
-      // Зарядки: зелёный круг + иконка (выделены на карте)
-      if (isCharging) {
-        const iconContent = '<img src="/charging-icon.svg" width="22" height="22" alt="" style="display:block;">'
-        const placemark = new ymaps.Placemark(
-          vehicle.position,
-          { iconContent, balloonContent, hintContent: vehicle.name },
-          { preset: 'islands#circleIcon', iconColor: '#22c55e' }
+      const kind: FleetMapMarkerKind =
+        vehicle.type === 'charging' ? 'charging' : vehicle.type
+      const batteryPercent =
+        vehicle.type === 'charging'
+          ? null
+          : activeRental?.vehicleId === vehicle.id && activeRental.batteryPercent != null
+            ? Math.round(Number(activeRental.batteryPercent))
+            : vehicle.battery != null
+              ? Math.round(vehicle.battery)
+              : null
+      const lowBattery =
+        vehicle.type !== 'charging' &&
+        Boolean(
+          vehicle.lowBattery ||
+            (batteryPercent != null && batteryPercent <= 20) ||
+            (activeRental?.vehicleId === vehicle.id && activeRental?.lowBatteryMode)
         )
-        placemark.events.add('click', () => setSelectedVehicle(vehicle))
-        map.geoObjects.add(placemark)
-        return
-      }
-      // Автомобили (если вернём на карту): иконка car-side
-      if (isCar) {
-        const placemark = new ymaps.Placemark(
+
+      const iconHref = buildFleetMapMarkerDataUrl({
+        kind,
+        batteryPercent,
+        lowBattery,
+        selected: isSelected,
+        fleetStatus: vehicle.fleetStatus,
+      })
+
+      const hint = mapMarkerHint(vehicle)
+      const vid = vehicle.id
+      let pm = placemarks.get(vid) as YMapPlacemark | undefined
+
+      if (!pm) {
+        const newPm = new ymaps.Placemark(
           vehicle.position,
-          { balloonContent, hintContent: vehicle.name },
+          { hintContent: hint },
           {
+            hasBalloon: false,
+            openBalloonOnClick: false,
             iconLayout: 'default#image',
-            iconImageHref: '/car-icon.svg',
-            iconImageSize: [24, 24],
-            iconImageOffset: [-12, -12],
+            iconImageHref: iconHref,
+            iconImageSize: [MARKER_W, MARKER_H],
+            iconImageOffset: [-MARKER_W / 2, -MARKER_H],
+            iconShape: {
+              type: 'Rectangle',
+              coordinates: [
+                [-MARKER_W / 2, -MARKER_H],
+                [MARKER_W / 2, 0],
+              ],
+            },
           }
-        )
-        placemark.events.add('click', () => setSelectedVehicle(vehicle))
-        map.geoObjects.add(placemark)
-        return
+        ) as unknown as YMapPlacemark
+        pm = newPm
+        pm.events.add('click', () => {
+          const v = mapFilteredVehiclesRef.current.find((x) => x.id === vid)
+          if (v) setSelectedVehicle(v)
+        })
+        geo.add(pm)
+        placemarks.set(vid, pm)
+        lastHref.set(vid, iconHref)
+      } else {
+        try {
+          pm.geometry.setCoordinates(vehicle.position)
+        } catch {
+          /* ignore */
+        }
+        pm.properties.set('hintContent', hint)
+        const prev = lastHref.get(vid)
+        if (prev !== iconHref) {
+          pm.options.set({
+            iconImageHref: iconHref,
+            iconImageSize: [MARKER_W, MARKER_H],
+            iconImageOffset: [-MARKER_W / 2, -MARKER_H],
+          })
+          lastHref.set(vid, iconHref)
+        }
       }
-      // Самокаты и велосипеды: кружок с Material-иконкой
-      const iconContent = `<span class="material-symbols-outlined" style="font-size:22px;color:#fff;">${iconName}</span>`
-      const iconColor = vehicle.lowBattery ? '#f59e0b' : isSelected ? '#fff' : '#666'
-      const placemark = new ymaps.Placemark(
-        vehicle.position,
-        { iconContent, balloonContent, hintContent: vehicle.name },
-        { preset: 'islands#circleIcon', iconColor }
-      )
-      placemark.events.add('click', () => setSelectedVehicle(vehicle))
-      map.geoObjects.add(placemark)
-    })
-  }, [mapReady, filteredVehicles, selectedVehicle?.id])
+    }
+  }, [
+    mapReady,
+    mapFilteredVehicles,
+    selectedVehicle?.id,
+    activeRental?.vehicleId,
+    activeRental?.batteryPercent,
+    activeRental?.lowBatteryMode,
+    activeRental?.status,
+  ])
+
+  const vehicleDeepLink = useMemo(
+    () => (selectedVehicle ? buildVehicleMapDeepLink(selectedVehicle.id) : ''),
+    [selectedVehicle?.id]
+  )
 
   const handleMyLocation = () => {
     const map = yandexMapRef.current
@@ -517,6 +666,16 @@ export default function MapPage() {
 
   const mineTrip =
     Boolean(selectedVehicle && activeRental && activeRental.vehicleId === selectedVehicle.id)
+  const hasOpenRental = activeRental != null
+  const canReserveHere =
+    Boolean(
+      selectedVehicle &&
+        selectedVehicle.type !== 'charging' &&
+        !hasOpenRental &&
+        (selectedVehicle.fleetStatus === 'available' || !selectedVehicle.fleetStatus)
+    )
+  const showPrimaryStart = Boolean(mineTrip && activeRental?.status === 'reserved')
+  const showPrimaryReserve = canReserveHere
   const liveBattery =
     selectedVehicle && activeRental?.vehicleId === selectedVehicle.id
       ? Math.round(activeRental.batteryPercent)
@@ -540,6 +699,14 @@ export default function MapPage() {
 
   return (
     <div className="bg-black text-white font-display overflow-hidden flex-1 min-h-0 w-full flex flex-row relative items-stretch">
+      {carsikiToast ? (
+        <div
+          className="fixed top-[max(0.75rem,env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-[2600] max-w-[min(28rem,calc(100%-2rem))] rounded-2xl border border-emerald-500/60 bg-emerald-950/95 text-emerald-100 px-4 py-3 text-sm shadow-xl"
+          role="status"
+        >
+          {carsikiToast}
+        </div>
+      ) : null}
       {sidebarOpen && (
         <button
           type="button"
@@ -555,25 +722,15 @@ export default function MapPage() {
       >
         <div className="p-4 sm:p-6 flex flex-col gap-4 sm:gap-6 pt-[max(1rem,env(safe-area-inset-top))] lg:pt-4">
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-3 min-w-0">
-              <div
-                className="bg-center bg-no-repeat bg-cover rounded-full size-11 sm:size-12 ring-1 ring-white grayscale shrink-0"
-                style={{ backgroundImage: 'url("https://lh3.googleusercontent.com/aida-public/AB6AXuAyLYHSAqriq8pF0paqLqXgyXyjW0x09L88uuZLJwuUlQHQ_HSnYc48lxfc3i5pEKfQ0lKofxjZbOJKwfrLMxtbCMZP6WBKABxPn1NIxKIuD-ll-jlln1f4uzCCEuKhxlpGJ3wFayA_DtGBzQQtJB-sTf6ssA_Q7MqJWgUZXO-1G5d3BuLDyP34AgyBQFv4_XrCmN3N6yh6nFhzmnwiKtk74f8R8fbSTU40A2k7EE37ew7VwK-cuScsFM9EIkxUJlhUkheXXg7jGtE")' }}
-                aria-hidden
-              />
-              <div className="flex flex-col min-w-0">
-                <h1 className="text-white text-base sm:text-lg font-bold leading-tight uppercase tracking-wide truncate">EV Rentals</h1>
-                <p className="text-gray-400 text-xs font-normal truncate">
-                  Баланс:{' '}
-                  <span className="text-white font-bold">
-                    {(activeRental != null ? activeRental.balance : (user?.balance ?? 0)).toFixed(2)} BYN
-                  </span>
-                </p>
-              </div>
-            </div>
+            <p className="text-gray-400 text-xs font-normal truncate min-w-0">
+              Баланс:{' '}
+              <span className="text-white font-bold">
+                {(activeRental != null ? activeRental.balance : (user?.balance ?? 0)).toFixed(2)} BYN
+              </span>
+            </p>
             <button
               type="button"
-              className="lg:hidden shrink-0 size-10 flex items-center justify-center rounded-lg border border-[#333] text-gray-300 hover:text-white hover:bg-white/10"
+              className="lg:hidden shrink-0 size-10 flex items-center justify-center rounded-xl border border-[#333] text-gray-300 hover:text-white hover:bg-white/10"
               aria-label="Закрыть меню"
               onClick={closeSidebar}
             >
@@ -581,75 +738,67 @@ export default function MapPage() {
             </button>
           </div>
           <Link
-            to="/dashboard"
+            to="/dashboard#wallet"
             onClick={closeSidebar}
-            className="flex w-full cursor-pointer items-center justify-center rounded-lg h-10 px-4 bg-white text-black text-sm font-bold border border-white hover:bg-black hover:text-white transition-colors"
+            className="flex w-full cursor-pointer items-center justify-center rounded-xl h-10 px-4 bg-white text-black text-sm font-bold border border-white hover:bg-black hover:text-white transition-colors touch-manipulation"
           >
             <span className="material-symbols-outlined mr-2 text-[20px]">add</span>
             Пополнить
           </Link>
         </div>
         <nav className="flex-1 px-3 sm:px-4 flex flex-col gap-2 overflow-y-auto">
-          <Link to="/" onClick={closeSidebar} className="flex items-center gap-3 px-3 sm:px-4 py-3 rounded-lg text-gray-400 hover:text-white hover:border hover:border-white/20 transition-all">
+          <Link
+            to="/"
+            onClick={closeSidebar}
+            className={`${sidebarNavClass} text-gray-400 hover:text-white hover:border hover:border-white/20`}
+          >
             <span className="material-symbols-outlined">home</span>
             <span className="text-sm font-medium">Главная</span>
           </Link>
-          <Link to="/map" onClick={closeSidebar} className="flex items-center gap-3 px-3 sm:px-4 py-3 rounded-lg bg-white text-black border border-white">
+          <Link
+            to="/map"
+            onClick={(e) => {
+              closeSidebar()
+              if (location.pathname === '/map') e.preventDefault()
+            }}
+            className={`${sidebarNavClass} bg-white text-black border border-white`}
+          >
             <span className="material-symbols-outlined">map</span>
             <span className="text-sm font-bold">Карта</span>
           </Link>
-          <a href="#wallet" onClick={closeSidebar} className="flex items-center gap-3 px-3 sm:px-4 py-3 rounded-lg text-gray-400 hover:text-white hover:border hover:border-white/20 transition-all">
+          <Link
+            to="/dashboard#wallet"
+            onClick={closeSidebar}
+            className={`${sidebarNavClass} text-gray-400 hover:text-white hover:border hover:border-white/20`}
+          >
             <span className="material-symbols-outlined">account_balance_wallet</span>
             <span className="text-sm font-medium">Кошелёк</span>
-          </a>
-          <Link to="/dashboard" onClick={closeSidebar} className="flex items-center gap-3 px-3 sm:px-4 py-3 rounded-lg text-gray-400 hover:text-white hover:border hover:border-white/20 transition-all">
+          </Link>
+          <Link
+            to="/dashboard#history"
+            onClick={closeSidebar}
+            className={`${sidebarNavClass} text-gray-400 hover:text-white hover:border hover:border-white/20`}
+          >
             <span className="material-symbols-outlined">pedal_bike</span>
             <span className="text-sm font-medium">Поездки</span>
           </Link>
-          <a href="#settings" onClick={closeSidebar} className="flex items-center gap-3 px-3 sm:px-4 py-3 rounded-lg text-gray-400 hover:text-white hover:border hover:border-white/20 transition-all">
+          <Link
+            to="/dashboard#settings"
+            onClick={closeSidebar}
+            className={`${sidebarNavClass} text-gray-400 hover:text-white hover:border hover:border-white/20`}
+          >
             <span className="material-symbols-outlined">settings</span>
             <span className="text-sm font-medium">Настройки</span>
-          </a>
-          <Link to="/support" onClick={closeSidebar} className="flex items-center gap-3 px-3 sm:px-4 py-3 rounded-lg text-gray-400 hover:text-white hover:border hover:border-white/20 transition-all">
+          </Link>
+          <Link
+            to="/support"
+            onClick={closeSidebar}
+            className={`${sidebarNavClass} text-gray-400 hover:text-white hover:border hover:border-white/20`}
+          >
             <span className="material-symbols-outlined">support_agent</span>
             <span className="text-sm font-medium">Поддержка</span>
           </Link>
         </nav>
-        <div className="px-4 pb-4 flex justify-center">
-          {weatherError && (
-            <div className="weather-card flex items-center justify-center min-h-[140px] text-sm text-amber-700">
-              {weatherError}
-            </div>
-          )}
-          {!weatherError && weather && (
-            <div className="weather-card">
-              <div className="weather-container" aria-hidden>
-                {weather.weatherCode <= 2 && (
-                  <>
-                    <span className="weather-sun sunshine" />
-                    <span className="weather-sun" />
-                  </>
-                )}
-                <div className={`weather-cloud front ${weather.weatherCode >= 1 ? '' : 'opacity-0'}`}>
-                  <span className="left-front" />
-                  <span className="right-front" />
-                </div>
-                <div className={`weather-cloud back ${weather.weatherCode >= 1 ? '' : 'opacity-0'}`}>
-                  <span className="left-back" />
-                  <span className="right-back" />
-                </div>
-              </div>
-              <div className="weather-card-header">
-                <span className="weather-location">{weather.location}</span>
-                <span className="weather-date">{weather.date}</span>
-              </div>
-              <span className="weather-temp">{weather.temp}°</span>
-              <div className="weather-temp-scale">
-                <span>Цельсий</span>
-              </div>
-            </div>
-          )}
-        </div>
         <div className="p-3 sm:p-4 border-t border-[#333] bg-black pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:pb-3">
           <div className="flex items-center gap-3 text-gray-400 text-xs">
             <span className="material-symbols-outlined text-white text-[16px]">wifi</span>
@@ -664,36 +813,60 @@ export default function MapPage() {
           <div className="pointer-events-auto flex flex-1 min-w-0 items-start gap-2">
             <button
               type="button"
-              className="lg:hidden shrink-0 size-10 flex items-center justify-center bg-black text-white rounded-lg shadow-lg border border-[#333] hover:bg-white hover:text-black transition-colors"
+              className="lg:hidden shrink-0 size-10 flex items-center justify-center bg-black text-white rounded-xl shadow-lg border border-[#333] hover:bg-white hover:text-black transition-colors"
               aria-label="Открыть меню"
               onClick={() => setSidebarOpen(true)}
             >
               <span className="material-symbols-outlined text-[22px]">menu</span>
             </button>
-            <div className="flex-1 min-w-0 max-w-md shadow-2xl shadow-black/80">
-            <label className="flex flex-col w-full h-12">
-              <div className="flex w-full items-center rounded-lg bg-black border border-[#333]">
-                <div className="text-white flex items-center justify-center pl-4">
+            <div className="flex-1 min-w-0 max-w-md shadow-2xl shadow-black/80 relative">
+            <label className="flex flex-col w-full">
+              <div className="flex w-full items-center rounded-xl bg-black border border-[#333] h-12">
+                <div className="text-white flex items-center justify-center pl-4 shrink-0">
                   <span className="material-symbols-outlined">search</span>
                 </div>
                 <input
-                  className="w-full bg-transparent border-none text-white placeholder-gray-500 focus:ring-0 px-4 h-full text-sm font-medium"
-                  placeholder="Поиск места или ID транспорта..."
+                  value={mapQuery}
+                  onChange={(e) => setMapQuery(e.target.value)}
+                  className="w-full min-w-0 bg-transparent border-none text-white placeholder-gray-500 focus:ring-0 px-4 h-full text-sm font-medium"
+                  placeholder="ID, название или фрагмент описания…"
+                  autoComplete="off"
                 />
-                <div className="pr-2">
-                  <button type="button" className="p-2 text-gray-400 hover:text-white rounded-full hover:bg-white/10">
+                <div className="pr-2 shrink-0">
+                  <button
+                    type="button"
+                    aria-expanded={mapFilterOpen}
+                    aria-label="Фильтр на карте"
+                    onClick={() => setMapFilterOpen((o) => !o)}
+                    className={`p-2 rounded-full hover:bg-white/10 ${
+                      mapFilterOpen || mapOnlyAvailable ? 'text-white bg-white/10' : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
                     <span className="material-symbols-outlined">tune</span>
                   </button>
                 </div>
               </div>
+              {mapFilterOpen && (
+                <div className="absolute left-0 right-0 top-full mt-1 z-[1100] rounded-xl border border-[#333] bg-black/95 backdrop-blur-sm p-3 shadow-xl pointer-events-auto">
+                  <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={mapOnlyAvailable}
+                      onChange={(e) => setMapOnlyAvailable(e.target.checked)}
+                      className="rounded border-gray-500"
+                    />
+                    Только свободные (скрыть забронированные и в поездке)
+                  </label>
+                </div>
+              )}
             </label>
             </div>
           </div>
           <div className="flex flex-col gap-2 pointer-events-auto shrink-0">
-            <button type="button" onClick={handleMyLocation} className="size-10 flex items-center justify-center bg-black text-white rounded-lg shadow-lg border border-[#333] hover:bg-white hover:text-black transition-colors">
+            <button type="button" onClick={handleMyLocation} className="size-10 flex items-center justify-center bg-black text-white rounded-xl shadow-lg border border-[#333] hover:bg-white hover:text-black transition-colors">
               <span className="material-symbols-outlined">my_location</span>
             </button>
-            <div className="flex flex-col rounded-lg shadow-lg border border-[#333] overflow-hidden">
+            <div className="flex flex-col rounded-xl shadow-lg border border-[#333] overflow-hidden">
               <button type="button" onClick={handleZoomIn} className="size-10 flex items-center justify-center bg-black text-white hover:bg-white hover:text-black border-b border-[#333] transition-colors">
                 <span className="material-symbols-outlined">add</span>
               </button>
@@ -707,13 +880,13 @@ export default function MapPage() {
 
         <div className="absolute left-0 right-0 z-[999] pointer-events-none top-[max(4.25rem,calc(env(safe-area-inset-top,0px)+3.75rem))] lg:top-auto lg:bottom-6 lg:left-0 lg:right-0 pb-0">
           <div className="layout-safe-x pointer-events-none">
-          <div className="bg-black/90 backdrop-blur-sm border border-[#333] rounded-xl p-2 shadow-xl flex flex-wrap gap-1 pointer-events-auto max-h-[36vh] overflow-y-auto lg:max-h-none w-full sm:w-fit max-w-full">
+          <div className="bg-black/90 backdrop-blur-sm border border-[#333] rounded-2xl p-2 shadow-xl flex flex-wrap gap-1 pointer-events-auto max-h-[36vh] overflow-y-auto lg:max-h-none w-full sm:w-fit max-w-full">
             {(['all', 'scooters', 'bikes', 'cars', 'charging'] as const).map((key) => (
               <button
                 key={key}
                 type="button"
                 onClick={() => setFilter(key)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${
                   filter === key ? 'bg-white text-black border border-white' : 'text-gray-400 hover:text-white hover:bg-white/10'
                 }`}
               >
@@ -729,7 +902,7 @@ export default function MapPage() {
           )}
           {activeRental?.lowBatteryMode && (
             <div className="mt-2 pointer-events-auto w-full max-w-md">
-              <div className="rounded-lg border border-amber-500/80 bg-amber-950/95 text-amber-100 text-xs sm:text-sm px-3 py-2">
+              <div className="rounded-xl border border-amber-500/80 bg-amber-950/95 text-amber-100 text-xs sm:text-sm px-3 py-2">
                 Низкий заряд транспорта. Ограничение скорости {activeRental.speedLimitKmh ?? 90} км/ч.
               </div>
             </div>
@@ -737,21 +910,20 @@ export default function MapPage() {
           </div>
         </div>
 
+        {selectedVehicle && (
         <div className="absolute bottom-0 left-0 right-0 z-[1000] pb-[max(0.25rem,env(safe-area-inset-bottom))] lg:bottom-6 lg:pb-0 pointer-events-none">
           <div className="layout-safe-x flex justify-stretch lg:justify-end pointer-events-none">
           <div className="w-full lg:w-[380px] max-w-full pointer-events-auto">
-          <div className="bg-[#121212] border border-[#333] rounded-t-2xl lg:rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[min(52dvh,520px)] lg:max-h-none">
-            {selectedVehicle ? (
-              <>
+          <div className="bg-[#121212] border border-[#333] rounded-t-3xl lg:rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[min(52dvh,520px)] lg:max-h-none">
                 <div
                   className="h-48 bg-cover bg-center relative grayscale contrast-125"
-                  style={{ backgroundImage: 'url("https://lh3.googleusercontent.com/aida-public/AB6AXuAKh-gt3atDaojRYxqf5xO7W31QU2sRqbpnXSEA2quT9CfOSlWYfpK2G2yha0Tj6NQCkFdJdmJ1klNLioop5FPIeNvx_qviLPFcvVGS4AzgShwL3o5pdEbtldGERoVCBxwfMQWS2v6bEcCfsWEfV1aTrojsBv3FO6eFb87qUmFxaGS9YqftnWI1eVYj5hc417_Ygg41fTehSG_aDIOsspt4N5N62wr74ujBfb6PrqI9bytVld2O1f-gtsHlsof_CE7CdbduMZlzWGs")' }}
+                  style={{ backgroundImage: `url("${vehicleCardHeroImage(selectedVehicle)}")` }}
                 >
                   <button
                     type="button"
-                    onClick={() => setSelectedVehicle(null)}
+                    onClick={dismissVehiclePanel}
                     className="absolute top-3 left-3 size-8 rounded-full bg-black/80 hover:bg-black border border-white text-white flex items-center justify-center transition-colors z-10"
-                    aria-label="Закрыть"
+                    aria-label="Закрыть карточку"
                   >
                     <span className="material-symbols-outlined text-[20px]">close</span>
                   </button>
@@ -770,10 +942,30 @@ export default function MapPage() {
                     <div>
                       <h2 className="text-xl font-bold text-white leading-tight uppercase">{selectedVehicle.name}</h2>
                       <p className="text-gray-400 text-sm mt-1">ID: #{selectedVehicle.id} • ~0.3 км</p>
+                      {selectedVehicle.type === 'car' && selectedVehicle.vehicleClass ? (
+                        <p className="text-gray-400 text-xs mt-0.5">
+                          Класс:{' '}
+                          <span className="text-gray-300">
+                            {VEHICLE_CLASS_LABEL_RU[selectedVehicle.vehicleClass.toLowerCase()] ??
+                              selectedVehicle.vehicleClass}
+                          </span>
+                        </p>
+                      ) : null}
                       {selectedVehicle.type === 'charging' && (
                         <p className="text-gray-400 text-sm mt-1 flex items-center gap-1">
                           <span className="material-symbols-outlined text-[16px]">location_on</span>
                           {selectedVehicle.address ?? 'г. Минск'}
+                        </p>
+                      )}
+                      {selectedVehicle.description ? (
+                        <p className="text-gray-400 text-sm mt-2 leading-relaxed">{selectedVehicle.description}</p>
+                      ) : selectedVehicle.type === 'charging' ? (
+                        <p className="text-gray-400 text-sm mt-2 leading-relaxed">
+                          Зарядная станция на карте EcoRide. Уточняйте доступность разъёмов и тарифы у оператора площадки.
+                        </p>
+                      ) : (
+                        <p className="text-gray-400 text-sm mt-2 leading-relaxed">
+                          Электротранспорт парка EcoRide. Забронируйте и начните поездку с карты.
                         </p>
                       )}
                     </div>
@@ -784,11 +976,45 @@ export default function MapPage() {
                       </div>
                     )}
                   </div>
+                  {vehicleDeepLink ? (
+                    <div className="flex gap-3 items-stretch rounded-2xl border border-[#333] bg-black/50 p-3">
+                      <div className="shrink-0 rounded-xl bg-white p-1.5">
+                        <QRCode
+                          value={vehicleDeepLink}
+                          size={88}
+                          fgColor="#111111"
+                          bgColor="#ffffff"
+                          aria-label={`QR: ${selectedVehicle.name}, ID ${selectedVehicle.id}`}
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1 flex flex-col justify-center gap-2">
+                        <p className="text-white text-xs font-bold uppercase tracking-wide">
+                          {selectedVehicle.type === 'charging' ? 'Личный QR объекта' : 'Личный QR транспорта'}
+                        </p>
+                        <p className="text-gray-500 text-[11px] leading-snug">
+                          Уникальная ссылка для наклейки. Другой телефон может отсканировать этот QR камерой или из
+                          галереи — откроется карта с этим средством.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void copyVehicleLink(vehicleDeepLink)}
+                          className="self-start text-xs font-medium px-2 py-1 rounded border border-[#555] text-gray-300 hover:text-white hover:border-gray-400 transition-colors"
+                        >
+                          {linkCopied ? 'Скопировано' : 'Копировать ссылку'}
+                        </button>
+                        {copyLinkError ? (
+                          <p className="text-red-400 text-[10px]" role="alert">
+                            {copyLinkError}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
                   {selectedVehicle.type !== 'charging' &&
                     (liveBattery != null || selectedVehicle.rangeKm != null || selectedVehicle.seats != null) && (
                     <div className={`grid gap-3 ${selectedVehicle.seats != null ? 'grid-cols-3' : 'grid-cols-2'}`}>
                       {liveBattery != null && (
-                        <div className="bg-[#121212] rounded-lg p-3 flex flex-col gap-1 border border-[#333]">
+                        <div className="bg-[#121212] rounded-xl p-3 flex flex-col gap-1 border border-[#333]">
                           <div className="flex items-center gap-2 text-gray-400 text-xs uppercase tracking-wider font-bold">
                             <span className="material-symbols-outlined text-[16px] text-white">battery_charging_full</span>
                             Батарея
@@ -797,7 +1023,7 @@ export default function MapPage() {
                         </div>
                       )}
                       {selectedVehicle.rangeKm != null && (
-                        <div className="bg-[#121212] rounded-lg p-3 flex flex-col gap-1 border border-[#333]">
+                        <div className="bg-[#121212] rounded-xl p-3 flex flex-col gap-1 border border-[#333]">
                           <div className="flex items-center gap-2 text-gray-400 text-xs uppercase tracking-wider font-bold">
                             <span className="material-symbols-outlined text-[16px] text-white">distance</span>
                             Запас
@@ -806,7 +1032,7 @@ export default function MapPage() {
                         </div>
                       )}
                       {selectedVehicle.seats != null && (
-                        <div className="bg-[#121212] rounded-lg p-3 flex flex-col gap-1 border border-[#333]">
+                        <div className="bg-[#121212] rounded-xl p-3 flex flex-col gap-1 border border-[#333]">
                           <div className="flex items-center gap-2 text-gray-400 text-xs uppercase tracking-wider font-bold">
                             <span className="material-symbols-outlined text-[16px] text-white">group</span>
                             Мест
@@ -824,47 +1050,59 @@ export default function MapPage() {
                         </p>
                       )}
                       {activeRental && mineTrip && (
-                        <div className="rounded-lg border border-[#444] bg-black/40 p-3 text-xs text-gray-300 space-y-1">
+                        <div className="rounded-xl border border-[#444] bg-black/40 p-3 text-xs text-gray-300 space-y-1">
                           <p>
                             Статус: <span className="text-white font-bold">{activeRental.status}</span>
                           </p>
+                          {activeRental.status === 'reserved' && reservationRemainingSec != null ? (
+                            <p className="text-amber-200/90 font-mono">
+                              До снятия брони: {formatReservationCountdown(reservationRemainingSec)}
+                            </p>
+                          ) : null}
                           <p>В пути: {activeRental.distanceKm.toFixed(2)} км</p>
                           <p>Списано: {activeRental.chargedAmount.toFixed(2)} BYN</p>
                           <p>Минут (оценка): {activeRental.billableMinutes}</p>
                         </div>
                       )}
                       <div className="flex gap-3 flex-wrap">
-                        {!mineTrip &&
-                          (selectedVehicle.fleetStatus === 'available' || !selectedVehicle.fleetStatus) && (
-                            <button
-                              type="button"
-                              onClick={handleRentClick}
-                              disabled={reserveMut.isPending}
-                              className="flex-1 min-w-[140px] h-11 bg-white hover:bg-gray-200 disabled:opacity-50 text-black border border-white rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all"
-                            >
-                              <span className="material-symbols-outlined">lock_open</span>
-                              {reserveMut.isPending ? '…' : 'Забронировать'}
-                            </button>
-                          )}
-                        {mineTrip && activeRental?.status === 'reserved' && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => startMut.mutate()}
-                              disabled={startMut.isPending}
-                              className="flex-1 min-w-[120px] h-11 bg-green-500 hover:bg-green-400 text-black rounded-lg font-bold text-sm"
-                            >
-                              {startMut.isPending ? '…' : 'Старт'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => cancelMut.mutate()}
-                              disabled={cancelMut.isPending}
-                              className="h-11 px-3 rounded-lg border border-[#555] text-gray-300 text-sm"
-                            >
-                              Отмена брони
-                            </button>
-                          </>
+                        {hasOpenRental && !mineTrip && (
+                          <p className="text-amber-400 text-xs w-full">
+                            У вас уже есть бронь или поездка на другом транспорте. Завершите или отмените её, чтобы
+                            забронировать это ТС.
+                          </p>
+                        )}
+                        {(showPrimaryReserve || showPrimaryStart) && (
+                          <button
+                            type="button"
+                            onClick={showPrimaryStart ? () => startMut.mutate() : handleRentClick}
+                            disabled={showPrimaryStart ? startMut.isPending : reserveMut.isPending}
+                            className={`flex-1 min-w-[140px] h-11 disabled:opacity-50 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all border ${
+                              showPrimaryStart
+                                ? 'bg-green-500 hover:bg-green-400 text-black border-green-500'
+                                : 'bg-white hover:bg-gray-200 text-black border-white'
+                            }`}
+                          >
+                            <span className="material-symbols-outlined">
+                              {showPrimaryStart ? 'play_arrow' : 'lock_open'}
+                            </span>
+                            {showPrimaryStart
+                              ? startMut.isPending
+                                ? '…'
+                                : 'Старт'
+                              : reserveMut.isPending
+                                ? '…'
+                                : 'Забронировать'}
+                          </button>
+                        )}
+                        {showPrimaryStart && (
+                          <button
+                            type="button"
+                            onClick={() => cancelMut.mutate()}
+                            disabled={cancelMut.isPending}
+                            className="h-11 px-3 rounded-xl border border-[#555] text-gray-300 text-sm hover:text-white hover:border-gray-400"
+                          >
+                            {cancelMut.isPending ? '…' : 'Отмена брони'}
+                          </button>
                         )}
                         {mineTrip && activeRental?.status === 'active' && (
                           <>
@@ -872,15 +1110,18 @@ export default function MapPage() {
                               type="button"
                               onClick={() => pauseMut.mutate()}
                               disabled={pauseMut.isPending}
-                              className="flex-1 min-w-[100px] h-11 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-bold text-sm"
+                              className="flex-1 min-w-[100px] h-11 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold text-sm"
                             >
                               Пауза
                             </button>
                             <button
                               type="button"
-                              onClick={() => completeMut.mutate()}
+                              onClick={() => {
+                                setUseCarsikiOnComplete(false)
+                                setCompleteTripDialogOpen(true)
+                              }}
                               disabled={completeMut.isPending}
-                              className="flex-1 min-w-[120px] h-11 bg-white hover:bg-gray-200 text-black rounded-lg font-bold text-sm"
+                              className="flex-1 min-w-[120px] h-11 bg-white hover:bg-gray-200 text-black rounded-xl font-bold text-sm"
                             >
                               Завершить
                             </button>
@@ -892,39 +1133,32 @@ export default function MapPage() {
                               type="button"
                               onClick={() => resumeMut.mutate()}
                               disabled={resumeMut.isPending}
-                              className="flex-1 h-11 bg-green-500 hover:bg-green-400 text-black rounded-lg font-bold text-sm"
+                              className="flex-1 h-11 bg-green-500 hover:bg-green-400 text-black rounded-xl font-bold text-sm"
                             >
                               Продолжить
                             </button>
                             <button
                               type="button"
-                              onClick={() => completeMut.mutate()}
+                              onClick={() => {
+                                setUseCarsikiOnComplete(false)
+                                setCompleteTripDialogOpen(true)
+                              }}
                               disabled={completeMut.isPending}
-                              className="flex-1 h-11 bg-white hover:bg-gray-200 text-black rounded-lg font-bold text-sm"
+                              className="flex-1 h-11 bg-white hover:bg-gray-200 text-black rounded-xl font-bold text-sm"
                             >
                               Завершить
                             </button>
                           </>
                         )}
-                        <button
-                          type="button"
-                          className="size-11 flex-shrink-0 bg-black text-gray-300 hover:text-white rounded-lg border border-[#333] hover:border-white flex items-center justify-center transition-colors"
-                          aria-label="QR"
-                        >
-                          <span className="material-symbols-outlined">qr_code_scanner</span>
-                        </button>
                       </div>
                     </div>
                   )}
                 </div>
-              </>
-            ) : (
-              <div className="p-6 text-gray-400 text-center">Выберите транспорт на карте</div>
-            )}
           </div>
           </div>
           </div>
         </div>
+        )}
 
         <div className="absolute inset-0 z-0">
           <div ref={mapContainerRef} className="h-full w-full bg-black" />
@@ -945,7 +1179,7 @@ export default function MapPage() {
                 <button
                   type="button"
                   onClick={handleRetryMap}
-                  className="mx-auto px-6 py-2 rounded-lg bg-white text-black font-medium hover:bg-gray-200 transition-colors"
+                  className="mx-auto px-6 py-2 rounded-xl bg-white text-black font-medium hover:bg-gray-200 transition-colors"
                 >
                   Повторить загрузку
                 </button>
@@ -960,6 +1194,65 @@ export default function MapPage() {
         </div>
       </main>
 
+      {completeTripDialogOpen ? (
+        <div
+          className="fixed inset-0 z-[2450] flex items-center justify-center p-4 bg-black/85"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="complete-trip-title"
+          onClick={() => {
+            if (!completeMut.isPending) {
+              setCompleteTripDialogOpen(false)
+              setUseCarsikiOnComplete(false)
+            }
+          }}
+        >
+          <div
+            className="bg-[#141414] border border-[#444] rounded-3xl max-w-md w-full p-6 text-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="complete-trip-title" className="text-lg font-bold mb-3">
+              Завершить поездку?
+            </h3>
+            <p className="text-gray-400 text-sm mb-5">
+              Вы уверены, что хотите завершить поездку? После подтверждения будет сформирован чек.
+            </p>
+            <label className="flex items-center gap-3 cursor-pointer text-sm text-gray-300 mb-6">
+              <input
+                type="checkbox"
+                className="size-4 rounded border-gray-500 text-white accent-white shrink-0"
+                checked={useCarsikiOnComplete}
+                onChange={(e) => setUseCarsikiOnComplete(e.target.checked)}
+              />
+              <span>
+                Учитывать <span className="text-white font-semibold">CARSIKI</span> в оплате этой поездки
+              </span>
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={completeMut.isPending}
+                className="flex-1 min-w-[8rem] h-11 rounded-2xl border border-[#555] text-gray-200 text-sm font-medium hover:border-gray-400 disabled:opacity-50"
+                onClick={() => {
+                  setCompleteTripDialogOpen(false)
+                  setUseCarsikiOnComplete(false)
+                }}
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                disabled={completeMut.isPending}
+                className="flex-1 min-w-[8rem] h-11 rounded-2xl bg-white text-black text-sm font-bold hover:bg-gray-200 disabled:opacity-50"
+                onClick={() => completeMut.mutate()}
+              >
+                {completeMut.isPending ? '…' : 'Завершить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {receipt && (
         <div
           className="fixed inset-0 z-[2500] flex items-center justify-center p-4 bg-black/85"
@@ -967,7 +1260,7 @@ export default function MapPage() {
           aria-modal="true"
           aria-labelledby="receipt-title"
         >
-          <div className="bg-[#141414] border border-[#444] rounded-2xl max-w-md w-full p-6 text-white shadow-2xl">
+          <div className="bg-[#141414] border border-[#444] rounded-3xl max-w-md w-full p-6 text-white shadow-2xl">
             <h3 id="receipt-title" className="text-xl font-bold mb-1">
               {receipt.startedAt ? 'Поездка завершена' : 'Бронь закрыта'}
             </h3>
@@ -993,6 +1286,28 @@ export default function MapPage() {
                 <span>Итого</span>
                 <span className="font-mono">{receipt.total.toFixed(2)} BYN</span>
               </li>
+              {(receipt.bynCreditedFromCarsiki ?? 0) > 0 ? (
+                <li className="flex justify-between gap-4 text-emerald-300 text-sm">
+                  <span>Оплачено CARSIKI (возврат на кошелёк)</span>
+                  <span className="font-mono">+{(receipt.bynCreditedFromCarsiki ?? 0).toFixed(2)} BYN</span>
+                </li>
+              ) : null}
+              {(receipt.carsikiSpent ?? 0) > 0 ? (
+                <li className="flex justify-between gap-4 text-gray-400 text-xs">
+                  <span>Списано CARSIKI</span>
+                  <span className="font-mono">{receipt.carsikiSpent ?? 0}</span>
+                </li>
+              ) : null}
+              {(receipt.carsikiEarned ?? 0) > 0 ? (
+                <li className="flex justify-between gap-4 text-emerald-300/90 text-sm">
+                  <span>Начислено CARSIKI</span>
+                  <span className="font-mono">+{receipt.carsikiEarned ?? 0}</span>
+                </li>
+              ) : null}
+              <li className="flex justify-between gap-4 text-gray-400 text-xs">
+                <span>CARSIKI на счету</span>
+                <span className="font-mono">{receipt.carsikiBalanceAfter ?? 0}</span>
+              </li>
               <li className="flex justify-between gap-4 text-gray-400 text-xs">
                 <span>Баланс после</span>
                 <span className="font-mono">{receipt.balanceAfter.toFixed(2)} BYN</span>
@@ -1001,7 +1316,7 @@ export default function MapPage() {
             <button
               type="button"
               onClick={() => setReceipt(null)}
-              className="w-full h-11 rounded-xl bg-white text-black font-bold hover:bg-gray-200 transition-colors"
+              className="w-full h-11 rounded-2xl bg-white text-black font-bold hover:bg-gray-200 transition-colors"
             >
               Закрыть
             </button>

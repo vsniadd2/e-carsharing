@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using EcoRide.Api.Auth;
 using EcoRide.Api.Contracts;
 using EcoRide.Api.Data;
@@ -21,7 +22,9 @@ public class WalletController(AppDbContext db) : ControllerBase
         if (body.Amount <= 0 || body.Amount > 10_000m)
             return BadRequest(new ErrorBody { Error = "Сумма должна быть от 0.01 до 10000 BYN" });
 
-        var user = await db.Users.FirstAsync(u => u.Id == userId.Value, ct);
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId.Value, ct);
+        if (user is null) return Unauthorized(new ErrorBody { Error = "Профиль не найден. Войдите снова." });
+        var last4 = NormalizeCardLast4(body.CardLast4);
         var now = DateTime.UtcNow;
         user.Balance += body.Amount;
         db.WalletLedgers.Add(new WalletLedger
@@ -31,6 +34,7 @@ public class WalletController(AppDbContext db) : ControllerBase
             Amount = body.Amount,
             BalanceAfter = user.Balance,
             Type = WalletLedgerType.Deposit,
+            PaymentCardLast4 = last4,
             CreatedAt = now,
         });
         await db.SaveChangesAsync(ct);
@@ -41,6 +45,7 @@ public class WalletController(AppDbContext db) : ControllerBase
             Email = user.Email,
             Name = user.Name,
             Balance = user.Balance,
+            Carsiki = user.Carsiki,
         });
     }
 
@@ -63,9 +68,19 @@ public class WalletController(AppDbContext db) : ControllerBase
                 Type = x.Type.ToString(),
                 CreatedAt = x.CreatedAt,
                 RentalId = x.RentalId != null ? x.RentalId.Value.ToString() : null,
+                PaymentCardLast4 = x.PaymentCardLast4,
             })
             .ToListAsync(ct);
 
         return Ok(items);
+    }
+
+    private static string? NormalizeCardLast4(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var d = Regex.Replace(raw.Trim(), @"\D", "");
+        if (d.Length < 4) return null;
+        d = d[^4..];
+        return d.Length == 4 && d.All(char.IsDigit) ? d : null;
     }
 }

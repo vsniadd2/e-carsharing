@@ -116,14 +116,14 @@ export default function HomePage() {
                 <div className="flex flex-col min-[480px]:flex-row gap-3 sm:gap-4">
                   <Link
                     to="/map"
-                    className="h-12 sm:h-14 px-6 sm:px-8 rounded-lg bg-black text-white hover:bg-slate-800 dark:bg-white dark:text-black dark:hover:bg-slate-200 text-sm sm:text-base font-bold transition-colors flex items-center justify-center gap-2"
+                    className="h-12 sm:h-14 px-6 sm:px-8 rounded-xl bg-black text-white hover:bg-slate-800 dark:bg-white dark:text-black dark:hover:bg-slate-200 text-sm sm:text-base font-bold transition-colors flex items-center justify-center gap-2"
                   >
                     Начать поездку
                     <span className="material-symbols-outlined">arrow_forward</span>
                   </Link>
                   <Link
                     to="/map"
-                    className="h-12 sm:h-14 px-6 sm:px-8 rounded-lg border border-slate-300 dark:border-slate-800 hover:border-black dark:hover:border-white text-sm sm:text-base font-medium transition-colors flex items-center justify-center gap-2"
+                    className="h-12 sm:h-14 px-6 sm:px-8 rounded-xl border border-slate-300 dark:border-slate-800 hover:border-black dark:hover:border-white text-sm sm:text-base font-medium transition-colors flex items-center justify-center gap-2"
                   >
                     Смотреть карту
                   </Link>
@@ -145,10 +145,10 @@ export default function HomePage() {
                   <div className="relative w-full aspect-[4/5] sm:aspect-[3/4] lg:aspect-[5/6] xl:aspect-[4/5] max-h-[min(68vh,560px)] lg:max-h-[min(62vh,600px)] xl:max-h-[min(58vh,620px)]">
                   <img
                     alt="Электромобиль в природном ландшафте"
-                    className="absolute inset-0 w-full h-full object-cover rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800"
+                    className="absolute inset-0 w-full h-full object-cover rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800"
                     src={heroImage}
                   />
-                  <div className="absolute -bottom-3 left-2 sm:-bottom-4 sm:left-3 lg:-bottom-5 lg:left-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 sm:p-4 rounded-xl shadow-xl max-w-[min(200px,85vw)] z-10">
+                  <div className="absolute -bottom-3 left-2 sm:-bottom-4 sm:left-3 lg:-bottom-5 lg:left-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 sm:p-4 rounded-2xl shadow-xl max-w-[min(200px,85vw)] z-10">
                     <div className="flex items-center gap-3 mb-2">
                       <div className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-black dark:text-white">
                         <span className="material-symbols-outlined text-sm">battery_charging_full</span>
@@ -202,8 +202,8 @@ export default function HomePage() {
                 { icon: 'forest', title: 'Посадка деревьев', text: 'Можно отдавать баллы: мы сажаем дерево за каждые 50 км.' },
                 { icon: 'diamond', title: 'Бонусы', text: 'Доступ к особым ТС, бронирование и приоритетная поддержка.' },
               ].map((card) => (
-                <div key={card.icon} className="group bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-black dark:hover:border-white rounded-xl p-6 sm:p-8 transition-all">
-                  <div className="w-12 h-12 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-black dark:text-white mb-6 group-hover:bg-black group-hover:text-white dark:group-hover:bg-white dark:group-hover:text-black transition-colors">
+                <div key={card.icon} className="group bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-black dark:hover:border-white rounded-2xl p-6 sm:p-8 transition-all">
+                  <div className="w-12 h-12 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-black dark:text-white mb-6 group-hover:bg-black group-hover:text-white dark:group-hover:bg-white dark:group-hover:text-black transition-colors">
                     <span className="material-symbols-outlined">{card.icon}</span>
                   </div>
                   <h3 className="text-xl font-bold mb-3 text-black dark:text-white">{card.title}</h3>
@@ -223,24 +223,29 @@ export default function HomePage() {
                   title: 'Проспект Независимости',
                   time: '25 мин',
                   km: '5 км',
-                  img: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=800&q=80',
+                  img: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/04/Minsk_Prospekt_Nezalezhnosti_05.jpg/1280px-Minsk_Prospekt_Nezalezhnosti_05.jpg',
                 },
                 {
                   title: 'Парк Победы и Комсомольское озеро',
                   time: '40 мин',
                   km: '7.5 км',
-                  img: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&q=80',
+                  img: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/02/Panorama_of_Lake_in_Victory_Park_-_Outside_Museum_of_the_Great_Patriotic_War_-_Minsk_-_Belarus_%2826916546474%29.jpg/1920px-Panorama_of_Lake_in_Victory_Park_-_Outside_Museum_of_the_Great_Patriotic_War_-_Minsk_-_Belarus_%2826916546474%29.jpg',
                 },
                 {
                   title: 'Национальная библиотека — Лошица',
                   time: '55 мин',
                   km: '11 км',
-                  img: 'https://images.unsplash.com/photo-1593941707882-a5bba14938c7?w=800&q=80',
+                  img: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ad/5_50_64_2f_-_Belarus_National_Library%2C_Minsk_2009_%283901618837%29.jpg/1280px-5_50_64_2f_-_Belarus_National_Library%2C_Minsk_2009_%283901618837%29.jpg',
                 },
               ].map((route) => (
-                <div key={route.title} className="group relative rounded-xl overflow-hidden aspect-[4/3] cursor-pointer">
+                <Link
+                  key={route.title}
+                  to="/map"
+                  aria-label={`${route.title}: открыть карту`}
+                  className="group relative rounded-2xl overflow-hidden aspect-[4/3] cursor-pointer block focus:outline-none focus-visible:ring-2 focus-visible:ring-black dark:focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:focus-visible:ring-offset-slate-900/30"
+                >
                   <img
-                    alt={route.title}
+                    alt=""
                     loading="lazy"
                     className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                     src={route.img}
@@ -257,12 +262,15 @@ export default function HomePage() {
                           <span>{route.km}</span>
                         </div>
                       </div>
-                      <Link to="/map" className="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center opacity-0 group-hover:opacity-100 transform translate-y-4 group-hover:translate-y-0 transition-all duration-300">
+                      <span
+                        className="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center opacity-0 group-hover:opacity-100 transform translate-y-4 group-hover:translate-y-0 transition-all duration-300 pointer-events-none"
+                        aria-hidden
+                      >
                         <span className="material-symbols-outlined">arrow_outward</span>
-                      </Link>
+                      </span>
                     </div>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </div>
@@ -270,13 +278,13 @@ export default function HomePage() {
 
         <section ref={ctaRef} className={`scroll-reveal ${revealed.cta ? 'is-visible' : ''} py-16 sm:py-24 bg-white dark:bg-black`}>
           <div className="layout-shell text-center">
-            <div className="bg-slate-100 dark:bg-slate-900 border-y sm:border border-slate-200 dark:border-slate-800 sm:rounded-2xl p-6 sm:p-10 lg:p-12 relative overflow-hidden max-w-4xl mx-auto">
+            <div className="bg-slate-100 dark:bg-slate-900 border-y sm:border border-slate-200 dark:border-slate-800 sm:rounded-3xl p-6 sm:p-10 lg:p-12 relative overflow-hidden max-w-4xl mx-auto">
               <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-slate-300/20 dark:bg-white/5 blur-[100px] rounded-full pointer-events-none" />
               <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-64 h-64 bg-slate-300/20 dark:bg-white/5 blur-[100px] rounded-full pointer-events-none" />
               <h2 className="text-2xl min-[400px]:text-3xl sm:text-5xl font-bold mb-4 sm:mb-6 text-black dark:text-white">Готовы поехать?</h2>
               <p className="text-slate-500 text-base sm:text-lg mb-6 sm:mb-8 max-w-xl mx-auto px-1">Найдите транспорт рядом и начните исследовать город по-новому.</p>
               <div className="flex justify-center">
-                <Link to="/map" className="h-12 px-8 rounded-lg bg-black hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-200 text-white dark:text-black font-bold transition-colors flex items-center justify-center gap-2">
+                <Link to="/map" className="h-12 px-8 rounded-xl bg-black hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-200 text-white dark:text-black font-bold transition-colors flex items-center justify-center gap-2">
                   Let&apos;s go
                   <span className="material-symbols-outlined">arrow_forward</span>
                 </Link>

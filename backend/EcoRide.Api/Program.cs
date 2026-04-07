@@ -1,7 +1,8 @@
 using System.Text;
 using EcoRide.Api.Data;
-using EcoRide.Api.Models;
+using EcoRide.Api.Hubs;
 using EcoRide.Api.Services;
+using EcoRide.Api.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -15,9 +16,13 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString));
 
+builder.Services.AddSingleton<IVehicleEffectivePricing, VehicleEffectivePricing>();
+builder.Services.AddSingleton<IRealtimeRentalPublisher, RealtimeRentalPublisher>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IRentalService, RentalService>();
 builder.Services.AddScoped<IPushDispatchService, PushDispatchService>();
+builder.Services.AddHostedService<ReservationExpiryHostedService>();
+builder.Services.AddHostedService<ActiveRentalLiveTickHostedService>();
 
 var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key is not configured.");
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "EcoRide";
@@ -37,9 +42,22 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true,
             ClockSkew = TimeSpan.Zero,
         };
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                    context.Token = accessToken;
+                return Task.CompletedTask;
+            },
+        };
     });
 
 builder.Services.AddAuthorization();
+
+builder.Services.AddSignalR();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -76,7 +94,9 @@ builder.Services.AddCors(options =>
     {
         policy.WithOrigins(
                 "http://localhost:5173",
-                "https://localhost:5173")
+                "https://localhost:5173",
+                "http://127.0.0.1:5173",
+                "https://127.0.0.1:5173")
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();
@@ -99,6 +119,9 @@ app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 
+// Хабы до контроллеров — чтобы /hubs/* не перехватывались чужими эндпоинтами.
+app.MapHub<RentalHub>("/hubs/rental");
+app.MapHub<AdminTicketsHub>("/hubs/admin-tickets");
 app.MapControllers();
 
 using (var scope = app.Services.CreateScope())
@@ -126,7 +149,6 @@ using (var scope = app.Services.CreateScope())
         db.SaveChanges();
     }
 
-    FleetSeed.EnsureSeeded(db);
 }
 
 app.Run();

@@ -25,11 +25,6 @@ export default function EcoAuthShell({ children }: EcoAuthShellProps) {
           <Link to="/" className="font-display text-xl sm:text-2xl font-bold tracking-tighter text-eco-auth-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-eco-auth-primary/30 rounded shrink-0 min-w-0">
             EcoRide
           </Link>
-          <div className="hidden sm:block text-right min-w-0">
-            <span className="text-[10px] sm:text-xs font-eco-auth-body uppercase tracking-widest text-eco-auth-secondary opacity-60">
-              Kinetic Precision • 2024
-            </span>
-          </div>
         </div>
       </header>
 

@@ -15,7 +15,7 @@ public class AuthController(AppDbContext db, ITokenService tokenService, ILogger
     private const int BcryptWorkFactor = 10;
 
     private static UserDto ToDto(AppUser u) =>
-        new() { Id = u.Id.ToString(), Email = u.Email, Name = u.Name, Balance = u.Balance };
+        new() { Id = u.Id.ToString(), Email = u.Email, Name = u.Name, Balance = u.Balance, Carsiki = u.Carsiki };
 
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponse>> Register([FromBody] RegisterRequest body, CancellationToken ct)
@@ -35,7 +35,7 @@ public class AuthController(AppDbContext db, ITokenService tokenService, ILogger
             return Conflict(new ErrorBody { Error = "Пользователь с таким email уже зарегистрирован" });
 
         var name = string.IsNullOrWhiteSpace(body.Name) ? email.Split('@')[0] : body.Name.Trim();
-        var bonus = decimal.TryParse(configuration["Wallet:RegistrationBonus"], out var wb) ? wb : 25m;
+        var bonus = decimal.TryParse(configuration["Wallet:RegistrationBonus"], out var wb) ? wb : 0m;
         var user = new AppUser
         {
             Id = Guid.NewGuid(),

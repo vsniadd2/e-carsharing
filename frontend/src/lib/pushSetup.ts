@@ -12,14 +12,21 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 /** Регистрация SW + Web Push (Chrome/Edge на localhost). Ошибки глушим — не блокируем вход. */
 export async function tryRegisterPushForEcoRide(accessToken: string): Promise<void> {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) return
+  if (!('Notification' in window)) return
+
+  // Уже отклонено пользователем — не вызываем requestPermission снова (Chrome блокирует и шумит в консоли).
+  if (Notification.permission === 'denied') return
 
   const vapidPublic = await fetchVapidPublicKey()
   if (!vapidPublic) return
 
   const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' })
 
-  const perm = await Notification.requestPermission()
-  if (perm !== 'granted') return
+  let permission: NotificationPermission = Notification.permission
+  if (permission === 'default') {
+    permission = await Notification.requestPermission()
+  }
+  if (permission !== 'granted') return
 
   const sub = await reg.pushManager.subscribe({
     userVisibleOnly: true,

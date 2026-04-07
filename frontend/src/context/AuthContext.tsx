@@ -1,9 +1,9 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import type { User } from '../api/auth';
 import {
   login as apiLogin,
   register as apiRegister,
-  refreshSession,
+  refreshSessionSingleFlight,
   logoutRemote,
   isJwtExpired,
 } from '../api/auth';
@@ -19,6 +19,8 @@ const LEGACY_TOKEN_KEY = 'ecoride_token';
 type AuthContextType = {
   user: User | null;
   token: string | null;
+  /** Access JWT ещё не истёк по данным клиента — можно слать authed-запросы без неминуемого 401. */
+  isAccessTokenValid: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, name?: string) => Promise<void>;
   logout: () => void;
@@ -50,6 +52,7 @@ function loadStored(): { token: string | null; refreshToken: string | null; user
     if (u) {
       const user = JSON.parse(u) as User;
       if (typeof user.balance !== 'number') user.balance = 0;
+      if (typeof user.carsiki !== 'number') user.carsiki = 0;
       if (access && refresh) return { token: access, refreshToken: refresh, user };
       if (access && !refresh) {
         clearSessionStorage();
@@ -67,6 +70,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
 
+  const isAccessTokenValid = useMemo(
+    () => Boolean(token) && !isJwtExpired(token as string),
+    [token],
+  );
+
   useEffect(() => {
     const { token: t, user: u } = loadStored();
     setToken(t);
@@ -82,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (access && !isJwtExpired(access)) return;
 
     let cancelled = false;
-    void refreshSession(refresh)
+    void refreshSessionSingleFlight(refresh)
       .then((auth) => {
         if (cancelled) return;
         persistSession(auth.accessToken, auth.refreshToken, auth.user);
@@ -100,11 +108,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [isReady]);
 
-  useEffect(() => {
-    if (!isReady || !token || !user) return;
-    void tryRegisterPushForEcoRide(token).catch(() => {});
-  }, [isReady, token, user?.id]);
-
   const refreshProfile = useCallback(async () => {
     const t = localStorage.getItem(ACCESS_KEY);
     if (!t) return;
@@ -117,6 +120,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       /* ignore */
     }
   }, []);
+
+  /** Баланс и профиль — из БД (/api/me), а не только из кэша localStorage */
+  useEffect(() => {
+    if (!isReady || !token) return;
+    if (isJwtExpired(token)) return;
+    void refreshProfile();
+  }, [isReady, token, refreshProfile]);
+
+  useEffect(() => {
+    if (!isReady || !token || !user) return;
+    void tryRegisterPushForEcoRide(token).catch(() => {});
+  }, [isReady, token, user?.id]);
 
   const login = useCallback(async (email: string, password: string) => {
     const auth = await apiLogin(email, password);
@@ -140,8 +155,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  useEffect(() => {
+    const onSessionInvalid = () => logout();
+    window.addEventListener('ecoride:session-invalid', onSessionInvalid);
+    return () => window.removeEventListener('ecoride:session-invalid', onSessionInvalid);
+  }, [logout]);
+
   return (
-    <AuthContext.Provider value={{ user, token, login, register, logout, refreshProfile, isReady }}>
+    <AuthContext.Provider
+      value={{ user, token, isAccessTokenValid, login, register, logout, refreshProfile, isReady }}
+    >
       {children}
     </AuthContext.Provider>
   );

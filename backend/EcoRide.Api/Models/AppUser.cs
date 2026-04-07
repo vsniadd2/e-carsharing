@@ -18,4 +18,7 @@ public class AppUser
 
     [Column(TypeName = "decimal(18,2)")]
     public decimal Balance { get; set; }
+
+    /// <summary>Баллы лояльности CARSIKI: 1 ед. = 0,01 BYN (100 = 1 BYN).</summary>
+    public long Carsiki { get; set; }
 }

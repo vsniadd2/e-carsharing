@@ -19,7 +19,8 @@ public class MeController(AppDbContext db) : ControllerBase
         if (userId is null) return Unauthorized();
 
         var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId.Value, ct);
-        if (user is null) return NotFound();
+        if (user is null)
+            return Unauthorized(new ErrorBody { Error = "Профиль не найден. Войдите снова." });
 
         return Ok(new UserDto
         {
@@ -27,6 +28,7 @@ public class MeController(AppDbContext db) : ControllerBase
             Email = user.Email,
             Name = user.Name,
             Balance = user.Balance,
+            Carsiki = user.Carsiki,
         });
     }
 }

@@ -45,6 +45,9 @@ public class UserDto
 
     [JsonPropertyName("balance")]
     public decimal Balance { get; set; }
+
+    [JsonPropertyName("carsiki")]
+    public long Carsiki { get; set; }
 }
 
 public class AuthResponse

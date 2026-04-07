@@ -31,17 +31,73 @@ public class VehicleDto
     [JsonPropertyName("pricePerMinute")]
     public decimal PricePerMinute { get; set; }
 
+    /// <summary>Класс авто для тарифных потолков: economy, comfort, premium.</summary>
+    [JsonPropertyName("vehicleClass")]
+    public string? VehicleClass { get; set; }
+
     [JsonPropertyName("status")]
     public string Status { get; set; } = string.Empty;
 
     [JsonPropertyName("lowBattery")]
     public bool LowBattery { get; set; }
+
+    [JsonPropertyName("photoUrl")]
+    public string? PhotoUrl { get; set; }
+
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
 }
 
 public class ReserveRequest
 {
     [JsonPropertyName("vehicleId")]
     public string? VehicleId { get; set; }
+}
+
+public class AdminCreateVehicleRequest
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("type")]
+    public string? Type { get; set; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("lat")]
+    public double Lat { get; set; }
+
+    [JsonPropertyName("lng")]
+    public double Lng { get; set; }
+
+    [JsonPropertyName("batteryPercent")]
+    public decimal BatteryPercent { get; set; } = 100;
+
+    [JsonPropertyName("priceStart")]
+    public decimal PriceStart { get; set; }
+
+    [JsonPropertyName("pricePerMinute")]
+    public decimal PricePerMinute { get; set; }
+
+    [JsonPropertyName("seats")]
+    public int? Seats { get; set; }
+
+    [JsonPropertyName("rangeKm")]
+    public int? RangeKm { get; set; }
+
+    [JsonPropertyName("lowBatteryFlag")]
+    public bool LowBatteryFlag { get; set; }
+
+    [JsonPropertyName("photoUrl")]
+    public string? PhotoUrl { get; set; }
+
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    /// <summary>economy | comfort | premium — для type car.</summary>
+    [JsonPropertyName("vehicleClass")]
+    public string? VehicleClass { get; set; }
 }
 
 public class RentalActiveDto
@@ -63,6 +119,10 @@ public class RentalActiveDto
 
     [JsonPropertyName("startedAt")]
     public DateTime? StartedAt { get; set; }
+
+    /// <summary>UTC: до этого момента действует бронь (только при status reserved).</summary>
+    [JsonPropertyName("reservationExpiresAt")]
+    public DateTime? ReservationExpiresAt { get; set; }
 
     [JsonPropertyName("batteryPercent")]
     public decimal BatteryPercent { get; set; }
@@ -123,12 +183,34 @@ public class TripReceiptDto
 
     [JsonPropertyName("balanceAfter")]
     public decimal BalanceAfter { get; set; }
+
+    [JsonPropertyName("carsikiEarned")]
+    public long CarsikiEarned { get; set; }
+
+    [JsonPropertyName("carsikiSpent")]
+    public long CarsikiSpent { get; set; }
+
+    [JsonPropertyName("bynCreditedFromCarsiki")]
+    public decimal BynCreditedFromCarsiki { get; set; }
+
+    [JsonPropertyName("carsikiBalanceAfter")]
+    public long CarsikiBalanceAfter { get; set; }
+}
+
+public class CompleteTripRequest
+{
+    [JsonPropertyName("useCarsiki")]
+    public bool UseCarsiki { get; set; }
 }
 
 public class DepositRequest
 {
     [JsonPropertyName("amount")]
     public decimal Amount { get; set; }
+
+    /// <summary>Последние 4 цифры карты (опционально, для отображения в истории).</summary>
+    [JsonPropertyName("cardLast4")]
+    public string? CardLast4 { get; set; }
 }
 
 public class WalletLedgerItemDto
@@ -150,6 +232,9 @@ public class WalletLedgerItemDto
 
     [JsonPropertyName("rentalId")]
     public string? RentalId { get; set; }
+
+    [JsonPropertyName("paymentCardLast4")]
+    public string? PaymentCardLast4 { get; set; }
 }
 
 public class AdminStatsDto

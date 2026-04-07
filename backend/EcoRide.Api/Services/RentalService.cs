@@ -3,12 +3,22 @@ using EcoRide.Api.Contracts;
 using EcoRide.Api.Data;
 using EcoRide.Api.Models;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace EcoRide.Api.Services;
 
-public class RentalService(AppDbContext db, IConfiguration configuration, IPushDispatchService pushDispatch, ILogger<RentalService> log)
+public class RentalService(
+    AppDbContext db,
+    IConfiguration configuration,
+    IPushDispatchService pushDispatch,
+    IVehicleEffectivePricing tariff,
+    IRealtimeRentalPublisher realtime,
+    ILogger<RentalService> log)
     : IRentalService
 {
+    private int ReservationTimeoutMinutes =>
+        int.TryParse(configuration["Rental:ReservationTimeoutMinutes"], out var tm) ? tm : 20;
+
     private decimal MinBalanceMinutes =>
         decimal.TryParse(configuration["Rental:MinBalanceMinutes"], out var m) ? m : 2m;
 
@@ -21,24 +31,100 @@ public class RentalService(AppDbContext db, IConfiguration configuration, IPushD
     private decimal BatteryDrainPercentPerHour =>
         decimal.TryParse(configuration["Rental:BatteryDrainPercentPerHour"], out var b) ? b : 12m;
 
+    private decimal CarsikiCashbackFraction =>
+        decimal.TryParse(configuration["Rewards:CarsikiCashbackFraction"], out var c) ? Math.Clamp(c, 0m, 1m) : 0.08m;
+
     private const decimal LowBatteryThreshold = 10m;
+
+    public async Task ReleaseExpiredReservationsAsync(CancellationToken ct = default)
+    {
+        var now = DateTime.UtcNow;
+        var threshold = now.AddMinutes(-ReservationTimeoutMinutes);
+        var stale = await db.Rentals
+            .Include(r => r.Vehicle)
+            .Where(r => r.Status == RentalStatus.Reserved && r.ReservedAt < threshold)
+            .ToListAsync(ct);
+        if (stale.Count == 0) return;
+
+        foreach (var r in stale)
+        {
+            r.Status = RentalStatus.Cancelled;
+            r.EndedAt = now;
+            r.Vehicle.Status = VehicleStatus.Available;
+        }
+
+        await db.SaveChangesAsync(ct);
+        await realtime.BroadcastFleetUpdatedAsync(ct);
+        foreach (var r in stale)
+            await realtime.NotifyUserRentalAsync(r.UserId, null, ct);
+    }
+
+    public async Task TickActiveRentalsAndNotifyAsync(CancellationToken ct = default)
+    {
+        await ReleaseExpiredReservationsAsync(ct);
+
+        var activeList = await db.Rentals
+            .Include(r => r.Vehicle)
+            .Where(r => r.Status == RentalStatus.Active || r.Status == RentalStatus.Paused)
+            .ToListAsync(ct);
+
+        if (activeList.Count == 0) return;
+
+        var userIds = activeList.Select(r => r.UserId).Distinct().ToList();
+        var users = await db.Users.Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, ct);
+
+        var now = DateTime.UtcNow;
+        var pushByUser = new Dictionary<Guid, string>();
+
+        foreach (var rental in activeList)
+        {
+            if (!users.TryGetValue(rental.UserId, out var user)) continue;
+            var pushPayload = SyncRental(rental, user, now);
+            if (!string.IsNullOrEmpty(pushPayload)) pushByUser[rental.UserId] = pushPayload;
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        foreach (var kv in pushByUser)
+        {
+            try
+            {
+                await pushDispatch.SendJsonToUserAsync(kv.Key, kv.Value, ct);
+            }
+            catch (Exception ex)
+            {
+                log.LogWarning(ex, "Web Push при тике поездки для {UserId}", kv.Key);
+            }
+        }
+
+        foreach (var rental in activeList)
+        {
+            if (!users.TryGetValue(rental.UserId, out var user)) continue;
+            var dto = MapToDto(rental, user.Balance);
+            await realtime.NotifyUserRentalAsync(rental.UserId, dto, ct);
+        }
+    }
 
     public async Task<RentalActiveDto?> GetActiveAsync(Guid userId, CancellationToken ct = default)
     {
+        await ReleaseExpiredReservationsAsync(ct);
         var rental = await FindOpenRentalAsync(userId, ct);
-        if (rental is null) return null;
+        if (rental is null)
+        {
+            await realtime.NotifyUserRentalAsync(userId, null, ct);
+            return null;
+        }
 
         var user = await db.Users.FirstAsync(u => u.Id == userId, ct);
-        var pushPayload = SyncRental(rental, user, DateTime.UtcNow);
-        await db.SaveChangesAsync(ct);
-        if (!string.IsNullOrEmpty(pushPayload))
-            await pushDispatch.SendJsonToUserAsync(userId, pushPayload, ct);
-
-        return MapToDto(rental, user.Balance);
+        var dto = MapToDto(rental, user.Balance);
+        await realtime.NotifyUserRentalAsync(userId, dto, ct);
+        return dto;
     }
 
     public async Task<(bool Ok, string? Error, string? Code)> ReserveAsync(Guid userId, string vehicleId, CancellationToken ct = default)
     {
+        await ReleaseExpiredReservationsAsync(ct);
+
         vehicleId = vehicleId.Trim();
         if (string.IsNullOrEmpty(vehicleId))
             return (false, "Укажите vehicleId", null);
@@ -51,8 +137,16 @@ public class RentalService(AppDbContext db, IConfiguration configuration, IPushD
 
             var vehicle = await db.Vehicles.FirstOrDefaultAsync(v => v.Id == vehicleId, ct);
             if (vehicle is null) return (false, "Транспорт не найден", null);
+            if (string.Equals(vehicle.Type, "charging", StringComparison.OrdinalIgnoreCase))
+                return (false, "Зарядные станции не бронируются", null);
             if (vehicle.Status != VehicleStatus.Available)
                 return (false, "Транспорт недоступен", "VehicleUnavailable");
+
+            var user = await db.Users.FirstAsync(u => u.Id == userId, ct);
+            var (effStart, effPerMin) = tariff.GetEffectiveTariff(vehicle);
+            var minNeeded = effStart + effPerMin * MinBalanceMinutes;
+            if (user.Balance < minNeeded)
+                return (false, $"Недостаточно средств. Нужно не меньше {minNeeded:F2} BYN для брони.", "InsufficientBalance");
 
             var rental = new Rental
             {
@@ -61,15 +155,30 @@ public class RentalService(AppDbContext db, IConfiguration configuration, IPushD
                 VehicleId = vehicle.Id,
                 Status = RentalStatus.Reserved,
                 ReservedAt = DateTime.UtcNow,
-                PriceStartSnapshot = vehicle.PriceStart,
-                PricePerMinuteSnapshot = vehicle.PricePerMinute,
+                PriceStartSnapshot = effStart,
+                PricePerMinuteSnapshot = effPerMin,
             };
             db.Rentals.Add(rental);
             vehicle.Status = VehicleStatus.Reserved;
 
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
+            await GetActiveAsync(userId, ct);
+            await realtime.BroadcastFleetUpdatedAsync(ct);
             return (true, null, null);
+        }
+        catch (DbUpdateException ex)
+        {
+            await tx.RollbackAsync(ct);
+            if (ex.InnerException is PostgresException pg
+                && pg.SqlState == PostgresErrorCodes.ForeignKeyViolation
+                && pg.ConstraintName?.Contains("UserId", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                log.LogWarning(ex, "Бронь: нет пользователя в БД (часто после сброса БД со старым JWT)");
+                return (false, "Профиль не найден. Войдите снова.", "SessionInvalid");
+            }
+            log.LogError(ex, "Reserve failed");
+            return (false, "Ошибка бронирования", null);
         }
         catch (Exception ex)
         {
@@ -81,6 +190,8 @@ public class RentalService(AppDbContext db, IConfiguration configuration, IPushD
 
     public async Task<(bool Ok, string? Error, string? Code)> StartAsync(Guid userId, CancellationToken ct = default)
     {
+        await ReleaseExpiredReservationsAsync(ct);
+
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         try
         {
@@ -119,6 +230,8 @@ public class RentalService(AppDbContext db, IConfiguration configuration, IPushD
 
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
+            await GetActiveAsync(userId, ct);
+            await realtime.BroadcastFleetUpdatedAsync(ct);
             return (true, null, null);
         }
         catch (Exception ex)
@@ -131,6 +244,7 @@ public class RentalService(AppDbContext db, IConfiguration configuration, IPushD
 
     public async Task<(bool Ok, string? Error)> PauseAsync(Guid userId, CancellationToken ct = default)
     {
+        await ReleaseExpiredReservationsAsync(ct);
         var rental = await FindOpenRentalAsync(userId, ct);
         if (rental is null) return (false, "Нет активной поездки");
         if (rental.Status != RentalStatus.Active) return (false, "Пауза доступна только во время поездки");
@@ -150,11 +264,13 @@ public class RentalService(AppDbContext db, IConfiguration configuration, IPushD
         await db.SaveChangesAsync(ct);
         if (!string.IsNullOrEmpty(pushPayload))
             await pushDispatch.SendJsonToUserAsync(userId, pushPayload, ct);
+        await GetActiveAsync(userId, ct);
         return (true, null);
     }
 
     public async Task<(bool Ok, string? Error)> ResumeAsync(Guid userId, CancellationToken ct = default)
     {
+        await ReleaseExpiredReservationsAsync(ct);
         var rental = await FindOpenRentalAsync(userId, ct);
         if (rental is null) return (false, "Нет поездки");
         if (rental.Status != RentalStatus.Paused) return (false, "Поездка не на паузе");
@@ -164,11 +280,14 @@ public class RentalService(AppDbContext db, IConfiguration configuration, IPushD
         rental.ActiveSegmentStartUtc = now;
         rental.LastSyncUtc = now;
         await db.SaveChangesAsync(ct);
+        await GetActiveAsync(userId, ct);
         return (true, null);
     }
 
-    public async Task<(bool Ok, string? Error, TripReceiptDto? Receipt)> CompleteAsync(Guid userId, CancellationToken ct = default)
+    public async Task<(bool Ok, string? Error, TripReceiptDto? Receipt)> CompleteAsync(Guid userId, bool useCarsiki, CancellationToken ct = default)
     {
+        await ReleaseExpiredReservationsAsync(ct);
+
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         try
         {
@@ -198,9 +317,15 @@ public class RentalService(AppDbContext db, IConfiguration configuration, IPushD
                     PerMinuteTotal = 0,
                     Total = 0,
                     BalanceAfter = user.Balance,
+                    CarsikiEarned = 0,
+                    CarsikiSpent = 0,
+                    BynCreditedFromCarsiki = 0,
+                    CarsikiBalanceAfter = user.Carsiki,
                 };
                 await db.SaveChangesAsync(ct);
                 await tx.CommitAsync(ct);
+                await GetActiveAsync(userId, ct);
+                await realtime.BroadcastFleetUpdatedAsync(ct);
                 return (true, null, cancelReceipt);
             }
 
@@ -223,6 +348,46 @@ public class RentalService(AppDbContext db, IConfiguration configuration, IPushD
             var perMinuteTotal = rental.ChargedAmount - rental.PriceStartSnapshot;
             if (perMinuteTotal < 0) perMinuteTotal = 0;
 
+            var tripTotal = Math.Round(rental.ChargedAmount, 2, MidpointRounding.AwayFromZero);
+            long carsikiSpent = 0;
+            decimal bynCreditedFromCarsiki = 0;
+            if (useCarsiki && tripTotal > 0 && user.Carsiki > 0)
+            {
+                var maxBynCover = user.Carsiki / 100m;
+                var coverByn = Math.Min(maxBynCover, tripTotal);
+                carsikiSpent = (long)Math.Floor(coverByn * 100m);
+                bynCreditedFromCarsiki = carsikiSpent / 100m;
+                user.Carsiki -= carsikiSpent;
+                user.Balance += bynCreditedFromCarsiki;
+                db.WalletLedgers.Add(new WalletLedger
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = user.Id,
+                    Amount = bynCreditedFromCarsiki,
+                    BalanceAfter = user.Balance,
+                    Type = WalletLedgerType.TripPaidByCarsiki,
+                    RentalId = rental.Id,
+                    CreatedAt = now,
+                });
+            }
+
+            // Кэшбек только с поминутной части (без посадки / PriceStart).
+            var perMinuteForCashback = Math.Round(perMinuteTotal, 2, MidpointRounding.AwayFromZero);
+            var carsikiEarned = (long)Math.Floor(perMinuteForCashback * CarsikiCashbackFraction * 100m);
+            if (carsikiEarned > 0)
+            {
+                user.Carsiki += carsikiEarned;
+                db.UserNotifications.Add(new UserNotification
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = user.Id,
+                    Title = "Начислены CARSIKI",
+                    Body = $"+{carsikiEarned} CARSIKI: кэшбек {CarsikiCashbackFraction * 100m:F0}% от поминутной суммы {perMinuteForCashback:F2} BYN (без посадки). 100 CARSIKI = 1 BYN.",
+                    Type = "carsiki_earned",
+                    CreatedAt = now,
+                });
+            }
+
             var receipt = new TripReceiptDto
             {
                 RentalId = rental.Id.ToString(),
@@ -235,14 +400,20 @@ public class RentalService(AppDbContext db, IConfiguration configuration, IPushD
                 PriceStart = rental.PriceStartSnapshot,
                 PricePerMinute = rental.PricePerMinuteSnapshot,
                 PerMinuteTotal = Math.Round(perMinuteTotal, 2),
-                Total = Math.Round(rental.ChargedAmount, 2),
+                Total = tripTotal,
                 BalanceAfter = user.Balance,
+                CarsikiEarned = carsikiEarned,
+                CarsikiSpent = carsikiSpent,
+                BynCreditedFromCarsiki = Math.Round(bynCreditedFromCarsiki, 2, MidpointRounding.AwayFromZero),
+                CarsikiBalanceAfter = user.Carsiki,
             };
 
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
             if (!string.IsNullOrEmpty(pushPayload))
                 await pushDispatch.SendJsonToUserAsync(userId, pushPayload, ct);
+            await GetActiveAsync(userId, ct);
+            await realtime.BroadcastFleetUpdatedAsync(ct);
             return (true, null, receipt);
         }
         catch (Exception ex)
@@ -255,6 +426,7 @@ public class RentalService(AppDbContext db, IConfiguration configuration, IPushD
 
     public async Task<(bool Ok, string? Error)> CancelReservationAsync(Guid userId, CancellationToken ct = default)
     {
+        await ReleaseExpiredReservationsAsync(ct);
         var rental = await FindOpenRentalAsync(userId, ct);
         if (rental is null) return (false, "Нет брони");
         if (rental.Status != RentalStatus.Reserved) return (false, "Можно отменить только бронь до старта");
@@ -264,6 +436,8 @@ public class RentalService(AppDbContext db, IConfiguration configuration, IPushD
         rental.EndedAt = DateTime.UtcNow;
         vehicle.Status = VehicleStatus.Available;
         await db.SaveChangesAsync(ct);
+        await realtime.BroadcastFleetUpdatedAsync(ct);
+        await GetActiveAsync(userId, ct);
         return (true, null);
     }
 
@@ -367,12 +541,15 @@ public class RentalService(AppDbContext db, IConfiguration configuration, IPushD
         return rental.TotalBillableSecondsCommitted;
     }
 
-    private static RentalActiveDto MapToDto(Rental rental, decimal balance)
+    private RentalActiveDto MapToDto(Rental rental, decimal balance)
     {
         var v = rental.Vehicle;
         var now = DateTime.UtcNow;
         var billableSec = GetCurrentBillableSeconds(rental, now);
         var lowMode = v.BatteryPercent < LowBatteryThreshold;
+        DateTime? reservationExpiresAt = rental.Status == RentalStatus.Reserved
+            ? rental.ReservedAt.AddMinutes(ReservationTimeoutMinutes)
+            : null;
 
         return new RentalActiveDto
         {
@@ -382,6 +559,7 @@ public class RentalService(AppDbContext db, IConfiguration configuration, IPushD
             Status = rental.Status.ToString().ToLowerInvariant(),
             ReservedAt = rental.ReservedAt,
             StartedAt = rental.StartedAt,
+            ReservationExpiresAt = reservationExpiresAt,
             BatteryPercent = v.BatteryPercent,
             DistanceKm = rental.DistanceKm,
             ChargedAmount = rental.ChargedAmount,

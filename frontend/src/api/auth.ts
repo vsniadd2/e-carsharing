@@ -1,7 +1,7 @@
 /** Пустая строка: запросы на тот же origin, в dev Vite проксирует /api → http://localhost:8080 */
 const API_BASE = '';
 
-export type User = { id: string; email: string; name: string; balance?: number };
+export type User = { id: string; email: string; name: string; balance?: number; carsiki?: number };
 
 export type AuthResponse = { accessToken: string; refreshToken: string; user: User };
 
@@ -43,6 +43,20 @@ export async function refreshSession(refreshToken: string): Promise<AuthResponse
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(await readError(res, data));
   return data as AuthResponse;
+}
+
+const refreshFlights = new Map<string, Promise<AuthResponse>>();
+
+/** Один HTTP-refresh на один и тот же refresh-токен (React Strict Mode / параллельные вызовы). */
+export function refreshSessionSingleFlight(refreshToken: string): Promise<AuthResponse> {
+  const key = refreshToken.trim();
+  let existing = refreshFlights.get(key);
+  if (existing) return existing;
+  const promise = refreshSession(key).finally(() => {
+    refreshFlights.delete(key);
+  });
+  refreshFlights.set(key, promise);
+  return promise;
 }
 
 export async function logoutRemote(refreshToken: string): Promise<void> {

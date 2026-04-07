@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import EcoAuthShell from '../components/EcoAuthShell'
 
 const inputClass =
-  'w-full bg-eco-auth-container-highest border-none rounded-md py-3.5 pl-12 pr-4 text-eco-auth-on-surface placeholder:text-eco-auth-on-surface-variant/30 focus:ring-1 focus:ring-eco-auth-primary/20 transition-all outline-none text-sm'
+  'w-full bg-eco-auth-container-highest border-none rounded-md py-4 min-h-[3.25rem] pl-12 pr-4 text-eco-auth-on-surface placeholder:text-eco-auth-on-surface-variant/30 focus:ring-1 focus:ring-eco-auth-primary/20 transition-all outline-none text-sm'
 
 export default function RegisterPage() {
   const [fullName, setFullName] = useState('')
@@ -49,8 +49,8 @@ export default function RegisterPage() {
 
   return (
     <EcoAuthShell>
-      <section className="relative z-10 w-full layout-shell layout-shell--form">
-        <div className="eco-auth-glass rounded-lg p-5 sm:p-8 shadow-[0px_24px_48px_rgba(0,0,0,0.4)] border border-eco-auth-outline-variant/10">
+      <section className="relative z-10 w-full layout-shell layout-shell--form layout-shell--form-register">
+        <div className="eco-auth-glass rounded-xl p-5 sm:p-8 shadow-[0px_24px_48px_rgba(0,0,0,0.4)] border border-eco-auth-outline-variant/10">
           <div className="mb-10">
             <h2 className="font-display text-3xl font-bold tracking-tight text-eco-auth-primary mb-2">Создать аккаунт</h2>
             <p className="text-eco-auth-secondary text-sm font-light">Начните свой путь с интеллектуальной мобильностью.</p>
@@ -98,7 +98,7 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-5">
               <div className="space-y-1.5">
                 <label htmlFor="reg-password" className="text-[10px] font-eco-auth-body uppercase tracking-widest text-eco-auth-secondary px-1 block">
                   Password
@@ -121,7 +121,7 @@ export default function RegisterPage() {
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="reg-confirm" className="text-[10px] font-eco-auth-body uppercase tracking-widest text-eco-auth-secondary px-1 block">
-                  Confirm
+                  Повторите пароль
                 </label>
                 <div className="relative flex items-center">
                   <span className="material-symbols-outlined absolute left-4 text-eco-auth-secondary/50 text-lg pointer-events-none" aria-hidden>
@@ -144,7 +144,7 @@ export default function RegisterPage() {
             <div className="flex items-start gap-3 py-2">
               <input
                 id="reg-terms"
-                className="mt-1 rounded-sm bg-eco-auth-container-highest border-none text-eco-auth-primary focus:ring-0 cursor-pointer accent-eco-auth-primary"
+                className="mt-0.5 h-6 w-6 min-h-[1.5rem] min-w-[1.5rem] shrink-0 rounded-md bg-eco-auth-container-highest border border-eco-auth-secondary/25 text-eco-auth-primary focus:ring-2 focus:ring-eco-auth-primary/35 focus:ring-offset-2 focus:ring-offset-eco-auth-surface cursor-pointer accent-eco-auth-primary"
                 type="checkbox"
                 checked={termsAccepted}
                 onChange={(e) => setTermsAccepted(e.target.checked)}

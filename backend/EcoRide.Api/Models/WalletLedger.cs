@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace EcoRide.Api.Models;
@@ -20,6 +21,10 @@ public class WalletLedger
     public Guid? RentalId { get; set; }
 
     public Rental? Rental { get; set; }
+
+    /// <summary>Последние 4 цифры карты при пополнении (демо).</summary>
+    [MaxLength(4)]
+    public string? PaymentCardLast4 { get; set; }
 
     public DateTime CreatedAt { get; set; }
 }

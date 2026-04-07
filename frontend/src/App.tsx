@@ -27,7 +27,7 @@ function App() {
             <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
             <Route path="/tariffs" element={<TariffsPage />} />
             <Route path="/rewards" element={<RewardsPage />} />
-            <Route path="/support" element={<SupportPage />} />
+            <Route path="/support" element={<ProtectedRoute><SupportPage /></ProtectedRoute>} />
             <Route path="/:slug" element={<ContentPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

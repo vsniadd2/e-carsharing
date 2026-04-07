@@ -1,6 +1,9 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
+import { fetchPublicVehicles } from '../api/fleet'
 import { useAuth } from '../context/AuthContext'
+import { tariffItemsFromApiVehicles, type TariffItem } from '../lib/tariffsFromApi'
 
 type TabType = 'cars' | 'bikes' | 'scooters'
 
@@ -10,87 +13,24 @@ const TABS: { key: TabType; label: string; icon: string }[] = [
   { key: 'scooters', label: 'Самокаты', icon: 'electric_scooter' },
 ]
 
-type Item = {
-  name: string
-  price: string
-  img: string
-  badge?: string
-  charge?: string
-  /** ID транспорта в парке API для перехода на карту */
-  fleetVehicleId?: string
-}
-
-const CARS: Item[] = [
-  {
-    name: 'MINI Cooper Electric',
-    price: '0.61',
-    img: 'https://images.unsplash.com/photo-1617788138017-80ad40651399?w=400&h=250&fit=crop',
-    badge: 'Daily',
-    charge: '92%',
-    fleetVehicleId: 'EC-1001',
-  },
-  {
-    name: 'Ford Mustang Mach-E GT',
-    price: '1.10',
-    img: 'https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?w=400&h=250&fit=crop',
-    badge: 'Premium',
-    charge: '88%',
-    fleetVehicleId: 'EC-1002',
-  },
-  { name: 'Tesla Model Y', price: '0.99', img: 'https://images.unsplash.com/photo-1536700503339-1e4b06520771?w=400&h=250&fit=crop', badge: 'SUV', charge: '95%' },
-  { name: 'Tesla Model 3', price: '0.61', img: 'https://images.unsplash.com/photo-1560958089-b8a1929cea89?w=400&h=250&fit=crop', badge: 'Daily', charge: '90%' },
-  { name: 'Tesla Model S Performance Ludicrous', price: '2.20', img: 'https://images.unsplash.com/photo-1551830820-330a71b99659?w=400&h=250&fit=crop', badge: 'Premium', charge: '98%' },
-  { name: 'Tesla Model X Performance', price: '1.85', img: 'https://images.unsplash.com/photo-1617788138017-80ad40651399?w=400&h=250&fit=crop', badge: 'SUV Premium', charge: '85%' },
-  { name: 'Porsche Taycan', price: '1.75', img: 'https://images.unsplash.com/photo-1614200179396-2bdb77ebf81b?w=400&h=250&fit=crop', badge: 'Luxury', charge: '87%' },
-  { name: 'BMW i4', price: '1.25', img: 'https://images.unsplash.com/photo-1617531653332-bd46c24f2068?w=400&h=250&fit=crop', badge: 'Premium', charge: '91%' },
-  { name: 'Audi e-tron GT', price: '1.65', img: 'https://images.unsplash.com/photo-1606016159991-dfe4f2746ad5?w=400&h=250&fit=crop', badge: 'Luxury', charge: '100%' },
-  { name: 'Polestar 2', price: '1.15', img: 'https://images.unsplash.com/photo-1619767886558-efdc259cde1a?w=400&h=250&fit=crop', badge: 'Premium', charge: '82%' },
-]
-
-const BIKES: Item[] = [
-  {
-    name: 'Электровелосипед',
-    price: '0.85',
-    img: 'https://images.unsplash.com/photo-1571068316344-75bc76f77890?w=400&h=250&fit=crop',
-    badge: 'Город',
-    charge: '95%',
-    fleetVehicleId: 'XB-3301',
-  },
-]
-
-const SCOOTERS: Item[] = [
-  {
-    name: 'Электросамокат',
-    price: '0.75',
-    img: 'https://images.unsplash.com/photo-1594925782034-5e4762d25953?w=400&h=250&fit=crop',
-    badge: 'Микромобильность',
-    charge: '90%',
-    fleetVehicleId: 'S4-8829',
-  },
-]
-
-const DATA: Record<TabType, Item[]> = {
-  cars: CARS,
-  bikes: BIKES,
-  scooters: SCOOTERS,
-}
-
 export default function TariffsPage() {
   const [tab, setTab] = useState<TabType>('cars')
-  const items = DATA[tab]
+  const { data: vehicles = [], isLoading, isError } = useQuery({
+    queryKey: ['vehicles'],
+    queryFn: fetchPublicVehicles,
+    staleTime: 60_000,
+  })
+  const dataByTab = useMemo(() => tariffItemsFromApiVehicles(vehicles), [vehicles])
+  const items = dataByTab[tab]
   const { user } = useAuth()
   const navigate = useNavigate()
 
-  const handleBook = (item: Item) => {
+  const handleBook = (item: TariffItem) => {
     if (!user) {
       navigate('/login', { state: { from: '/tariffs' } })
       return
     }
-    if (item.fleetVehicleId) {
-      navigate(`/map?vehicle=${encodeURIComponent(item.fleetVehicleId)}`)
-      return
-    }
-    navigate('/map')
+    navigate(`/map?vehicle=${encodeURIComponent(item.fleetVehicleId)}`)
   }
 
   return (
@@ -101,18 +41,24 @@ export default function TariffsPage() {
             Наши <span className="text-slate-500 dark:text-slate-400">Тарифы</span>
           </h1>
           <p className="text-slate-500 text-lg max-w-2xl leading-relaxed">
-            Премиальный электрокаршеринг для ваших поездок. Выбирайте транспорт, который подходит вашему стилю жизни.
+            Актуальные цены совпадают с парком на карте (данные из сервера после seed в БД).
           </p>
         </div>
 
+        {isError && (
+          <p className="text-sm text-red-600 dark:text-red-400 mb-6" role="alert">
+            Не удалось загрузить тарифы. Проверьте API и обновите страницу.
+          </p>
+        )}
+
         <div className="mb-8 sm:mb-12 w-full overflow-x-auto overscroll-x-contain pb-1">
-          <div className="inline-flex sm:flex p-1 bg-slate-100 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800 gap-1 min-w-min">
+          <div className="inline-flex sm:flex p-1 bg-slate-100 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-800 gap-1 min-w-min">
             {TABS.map(({ key, label, icon }) => (
               <button
                 key={key}
                 type="button"
                 onClick={() => setTab(key)}
-                className={`shrink-0 px-4 sm:px-8 py-2.5 sm:py-3 rounded-lg text-sm sm:text-base font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
+                className={`shrink-0 px-4 sm:px-8 py-2.5 sm:py-3 rounded-xl text-sm sm:text-base font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
                   tab === key
                     ? 'bg-black dark:bg-white text-white dark:text-black shadow-lg'
                     : 'text-slate-600 dark:text-slate-400 hover:text-black dark:hover:text-white'
@@ -126,10 +72,16 @@ export default function TariffsPage() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
+          {isLoading && (
+            <p className="text-slate-500 col-span-full">Загрузка тарифов…</p>
+          )}
+          {!isLoading && items.length === 0 && !isError && (
+            <p className="text-slate-500 col-span-full">Нет транспорта в этой категории.</p>
+          )}
           {items.map((item) => (
             <div
-              key={item.name}
-              className="group bg-white dark:bg-slate-800/30 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden hover:shadow-xl hover:border-slate-300 dark:hover:border-slate-600 transition-all flex flex-col"
+              key={item.key}
+              className="group bg-white dark:bg-slate-800/30 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden hover:shadow-xl hover:border-slate-300 dark:hover:border-slate-600 transition-all flex flex-col"
             >
               <div className="relative h-56 w-full overflow-hidden bg-slate-100 dark:bg-slate-900">
                 {item.badge && (
@@ -159,14 +111,19 @@ export default function TariffsPage() {
                   </div>
                 </div>
                 <div className="mt-auto">
-                  <div className="flex items-baseline gap-1 mb-6">
-                    <span className="text-2xl font-bold text-black dark:text-white">{item.price} BYN</span>
-                    <span className="text-slate-500 text-sm">/ 1 мин</span>
+                  <div className="flex flex-col gap-1 mb-6">
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <span className="text-2xl font-bold text-black dark:text-white">{item.priceStart} BYN</span>
+                      <span className="text-slate-500 text-sm">посадка</span>
+                    </div>
+                    <div className="text-slate-600 dark:text-slate-400 text-base font-semibold">
+                      + {item.pricePerMinute} BYN <span className="text-slate-500 text-sm font-normal">/ мин</span>
+                    </div>
                   </div>
                   <button
                     type="button"
                     onClick={() => handleBook(item)}
-                    className="w-full py-4 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black text-black dark:text-white font-bold transition-all flex items-center justify-center gap-2"
+                    className="w-full py-4 rounded-xl bg-slate-200 dark:bg-slate-700 hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black text-black dark:text-white font-bold transition-all flex items-center justify-center gap-2"
                   >
                     Забронировать
                     <span className="material-symbols-outlined text-lg">arrow_forward</span>

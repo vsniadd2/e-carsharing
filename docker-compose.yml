@@ -18,6 +18,7 @@ services:
       retries: 5
       start_period: 10s
 
+  # После добавления SignalR-хабов: docker compose build api && docker compose up -d api
   api:
     build:
       context: ./backend
@@ -38,13 +39,17 @@ services:
       Admin__Email: "admin@ecoride.system"
       Admin__Login: "admin"
       Admin__Password: "admin"
-      Wallet__RegistrationBonus: "50"
+      Wallet__RegistrationBonus: "0"
+      Rewards__CarsikiCashbackFraction: "0.08"
       Vapid__PublicKey: "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U"
       Vapid__PrivateKey: "UUxI4O8-FbRouAf-evfsq6YSMDHSEuLXMgSqJ01CkPg"
       Vapid__Subject: "mailto:admin@ecoride.system"
     depends_on:
       postgres:
         condition: service_healthy
+    # Транспорт в БД не создаётся автоматически. После первого подъёма: миграции применятся при старте API.
+    # Заполнить парк и ЭЗС: cd scripts/seed-fleet && npm install && node seed.mjs
+    # (по умолчанию localhost:5432, user ecoride, password ecoride_dev, db ecoride).
 
 volumes:
   postgres_data:

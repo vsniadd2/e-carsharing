@@ -14,11 +14,19 @@ namespace EcoRide.Api.Controllers;
 [Authorize]
 public class RentalsController(AppDbContext db, IRentalService rentals) : ControllerBase
 {
+    private async Task<ActionResult?> EnsureRegisteredUserAsync(Guid userId, CancellationToken ct)
+    {
+        if (await db.Users.AsNoTracking().AnyAsync(u => u.Id == userId, ct)) return null;
+        return Unauthorized(new ErrorBody { Error = "Профиль не найден. Войдите снова." });
+    }
+
     [HttpGet("history")]
     public async Task<ActionResult<IReadOnlyList<RentalHistoryItemDto>>> History([FromQuery] int take = 20, CancellationToken ct = default)
     {
         var userId = User.GetUserId();
         if (userId is null) return Unauthorized();
+        var guard = await EnsureRegisteredUserAsync(userId.Value, ct);
+        if (guard != null) return guard;
         take = Math.Clamp(take, 1, 50);
 
         var list = await db.Rentals.AsNoTracking()
@@ -46,6 +54,9 @@ public class RentalsController(AppDbContext db, IRentalService rentals) : Contro
         var userId = User.GetUserId();
         if (userId is null) return Unauthorized();
 
+        var guard = await EnsureRegisteredUserAsync(userId.Value, ct);
+        if (guard != null) return guard;
+
         var dto = await rentals.GetActiveAsync(userId.Value, ct);
         if (dto is null) return NoContent();
         return Ok(dto);
@@ -57,8 +68,14 @@ public class RentalsController(AppDbContext db, IRentalService rentals) : Contro
         var userId = User.GetUserId();
         if (userId is null) return Unauthorized();
 
+        var guard = await EnsureRegisteredUserAsync(userId.Value, ct);
+        if (guard != null) return guard;
+
         var (ok, err, code) = await rentals.ReserveAsync(userId.Value, body.VehicleId ?? "", ct);
         if (!ok && code == "AlreadyRental") return Conflict(new ErrorBody { Error = err ?? "" });
+        if (!ok && code == "InsufficientBalance")
+            return Conflict(new ErrorCodeBody { Error = err ?? "", Code = "InsufficientBalance" });
+        if (!ok && code == "SessionInvalid") return Unauthorized(new ErrorBody { Error = err ?? "" });
         if (!ok) return BadRequest(new ErrorBody { Error = err ?? "Ошибка" });
 
         return NoContent();
@@ -69,6 +86,9 @@ public class RentalsController(AppDbContext db, IRentalService rentals) : Contro
     {
         var userId = User.GetUserId();
         if (userId is null) return Unauthorized();
+
+        var guard = await EnsureRegisteredUserAsync(userId.Value, ct);
+        if (guard != null) return guard;
 
         var (ok, err, code) = await rentals.StartAsync(userId.Value, ct);
         if (!ok && code == "InsufficientBalance")
@@ -84,6 +104,9 @@ public class RentalsController(AppDbContext db, IRentalService rentals) : Contro
         var userId = User.GetUserId();
         if (userId is null) return Unauthorized();
 
+        var guard = await EnsureRegisteredUserAsync(userId.Value, ct);
+        if (guard != null) return guard;
+
         var (ok, err) = await rentals.PauseAsync(userId.Value, ct);
         if (!ok) return BadRequest(new ErrorBody { Error = err ?? "Ошибка" });
         return NoContent();
@@ -95,18 +118,24 @@ public class RentalsController(AppDbContext db, IRentalService rentals) : Contro
         var userId = User.GetUserId();
         if (userId is null) return Unauthorized();
 
+        var guard = await EnsureRegisteredUserAsync(userId.Value, ct);
+        if (guard != null) return guard;
+
         var (ok, err) = await rentals.ResumeAsync(userId.Value, ct);
         if (!ok) return BadRequest(new ErrorBody { Error = err ?? "Ошибка" });
         return NoContent();
     }
 
     [HttpPost("complete")]
-    public async Task<ActionResult<TripReceiptDto>> Complete(CancellationToken ct)
+    public async Task<ActionResult<TripReceiptDto>> Complete([FromBody] CompleteTripRequest? body, CancellationToken ct)
     {
         var userId = User.GetUserId();
         if (userId is null) return Unauthorized();
 
-        var (ok, err, receipt) = await rentals.CompleteAsync(userId.Value, ct);
+        var guard = await EnsureRegisteredUserAsync(userId.Value, ct);
+        if (guard != null) return guard;
+
+        var (ok, err, receipt) = await rentals.CompleteAsync(userId.Value, body?.UseCarsiki ?? false, ct);
         if (!ok) return BadRequest(new ErrorBody { Error = err ?? "Ошибка" });
         return Ok(receipt);
     }
@@ -116,6 +145,9 @@ public class RentalsController(AppDbContext db, IRentalService rentals) : Contro
     {
         var userId = User.GetUserId();
         if (userId is null) return Unauthorized();
+
+        var guard = await EnsureRegisteredUserAsync(userId.Value, ct);
+        if (guard != null) return guard;
 
         var (ok, err) = await rentals.CancelReservationAsync(userId.Value, ct);
         if (!ok) return BadRequest(new ErrorBody { Error = err ?? "Ошибка" });

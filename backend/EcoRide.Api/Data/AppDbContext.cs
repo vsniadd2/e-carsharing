@@ -12,6 +12,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<WalletLedger> WalletLedgers => Set<WalletLedger>();
     public DbSet<UserPushSubscription> UserPushSubscriptions => Set<UserPushSubscription>();
     public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
+    public DbSet<SupportTicket> SupportTickets => Set<SupportTicket>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -38,6 +39,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.BatteryPercent).HasPrecision(6, 2);
             e.Property(x => x.PriceStart).HasPrecision(18, 2);
             e.Property(x => x.PricePerMinute).HasPrecision(18, 2);
+            e.Property(x => x.VehicleClass).HasMaxLength(32);
+            e.Property(x => x.PhotoUrl).HasMaxLength(2000);
+            e.Property(x => x.Description).HasMaxLength(2000);
         });
 
         modelBuilder.Entity<Rental>(e =>
@@ -65,6 +69,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(x => x.UserId);
             e.Property(x => x.Amount).HasPrecision(18, 2);
             e.Property(x => x.BalanceAfter).HasPrecision(18, 2);
+            e.Property(x => x.PaymentCardLast4).HasMaxLength(4);
             e.HasOne(x => x.User)
                 .WithMany()
                 .HasForeignKey(x => x.UserId)
@@ -93,6 +98,17 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .WithMany()
                 .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SupportTicket>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.CreatedAt);
+            e.HasIndex(x => x.UserId);
+            e.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

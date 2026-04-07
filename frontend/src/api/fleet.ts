@@ -20,8 +20,12 @@ export type ApiVehicle = {
   seats: number | null
   priceStart: number
   pricePerMinute: number
+  /** economy | comfort | premium — только для type car */
+  vehicleClass?: string | null
   status: string
   lowBattery: boolean
+  photoUrl?: string | null
+  description?: string | null
 }
 
 export async function fetchPublicVehicles(): Promise<ApiVehicle[]> {
@@ -37,6 +41,8 @@ export type RentalActiveDto = {
   status: string
   reservedAt: string
   startedAt: string | null
+  /** ISO UTC; только при status === 'reserved' */
+  reservationExpiresAt?: string | null
   batteryPercent: number
   distanceKm: number
   chargedAmount: number
@@ -46,9 +52,19 @@ export type RentalActiveDto = {
   balance: number
 }
 
+const SESSION_INVALID_EVENT = 'ecoride:session-invalid'
+
+export function dispatchSessionInvalid(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(SESSION_INVALID_EVENT))
+}
+
 export async function fetchActiveRental(token: string): Promise<RentalActiveDto | null> {
   const res = await authedFetch(token, '/api/rentals/active', { method: 'GET' })
   if (res.status === 204) return null
+  if (res.status === 401) {
+    dispatchSessionInvalid()
+    return null
+  }
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(await readError(res, data))
   return data as RentalActiveDto
@@ -60,7 +76,12 @@ export async function reserveVehicle(token: string, vehicleId: string): Promise<
     body: JSON.stringify({ vehicleId }),
   })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(await readError(res, data))
+  if (!res.ok) {
+    const err = new Error(await readError(res, data)) as Error & { code?: string }
+    const code = (data as { code?: string }).code
+    if (typeof code === 'string') err.code = code
+    throw err
+  }
 }
 
 export async function startRental(token: string): Promise<void> {
@@ -99,10 +120,17 @@ export type TripReceiptDto = {
   perMinuteTotal: number
   total: number
   balanceAfter: number
+  carsikiEarned: number
+  carsikiSpent: number
+  bynCreditedFromCarsiki: number
+  carsikiBalanceAfter: number
 }
 
-export async function completeRental(token: string): Promise<TripReceiptDto> {
-  const res = await authedFetch(token, '/api/rentals/complete', { method: 'POST' })
+export async function completeRental(token: string, useCarsiki: boolean): Promise<TripReceiptDto> {
+  const res = await authedFetch(token, '/api/rentals/complete', {
+    method: 'POST',
+    body: JSON.stringify({ useCarsiki }),
+  })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(await readError(res, data))
   return data as TripReceiptDto
@@ -117,14 +145,25 @@ export async function cancelReservation(token: string): Promise<void> {
 export async function fetchMe(token: string): Promise<User> {
   const res = await authedFetch(token, '/api/me', { method: 'GET' })
   const data = await res.json().catch(() => ({}))
+  if (res.status === 401) {
+    dispatchSessionInvalid()
+    throw new Error(await readError(res, data))
+  }
   if (!res.ok) throw new Error(await readError(res, data))
   return data as User
 }
 
-export async function depositWallet(token: string, amount: number): Promise<User> {
+export async function depositWallet(
+  token: string,
+  amount: number,
+  cardLast4?: string,
+): Promise<User> {
   const res = await authedFetch(token, '/api/wallet/deposit', {
     method: 'POST',
-    body: JSON.stringify({ amount }),
+    body: JSON.stringify({
+      amount,
+      ...(cardLast4 && /^\d{4}$/.test(cardLast4) ? { cardLast4 } : {}),
+    }),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(await readError(res, data))
@@ -138,6 +177,8 @@ export type WalletLedgerItem = {
   type: string
   createdAt: string
   rentalId: string | null
+  /** Последние 4 цифры карты (пополнение). */
+  paymentCardLast4?: string | null
 }
 
 export async function fetchWalletLedger(token: string, take = 40): Promise<WalletLedgerItem[]> {
@@ -179,6 +220,12 @@ export async function fetchNotifications(token: string): Promise<NotificationDto
   return data as NotificationDto[]
 }
 
+export async function markNotificationRead(token: string, id: string): Promise<void> {
+  const res = await authedFetch(token, `/api/notifications/${id}/read`, { method: 'POST' })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(await readError(res, data))
+}
+
 export async function fetchVapidPublicKey(): Promise<string> {
   const res = await fetch(`${API_BASE}/api/push/vapid-public`)
   const data = await res.json().catch(() => ({}))
@@ -214,4 +261,61 @@ export async function fetchAdminStats(adminAccessToken: string): Promise<AdminSt
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(await readError(res, data))
   return data as AdminStats
+}
+
+export type AdminTicketItem = {
+  id: string
+  userEmail: string
+  userName: string
+  subject: string
+  messagePreview: string
+  status: string
+  createdAt: string
+}
+
+/** Payload события SignalR TicketCreated (как с бэкенда) */
+export type SupportTicketCreatedPayload = {
+  id: string
+  userEmail: string
+  userName: string
+  subject: string
+  messagePreview: string
+  createdAt: string
+}
+
+export async function fetchAdminTickets(adminAccessToken: string, take = 50): Promise<AdminTicketItem[]> {
+  const res = await authedFetch(adminAccessToken, `/api/admin/tickets?take=${take}`, { method: 'GET' })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(await readError(res, data))
+  return data as AdminTicketItem[]
+}
+
+export type AdminCreateVehicleBody = {
+  id: string
+  type: 'car' | 'bike' | 'scooter' | 'charging'
+  name: string
+  lat: number
+  lng: number
+  batteryPercent?: number
+  priceStart: number
+  pricePerMinute: number
+  seats?: number | null
+  rangeKm?: number | null
+  lowBatteryFlag?: boolean
+  photoUrl?: string | null
+  description?: string | null
+  vehicleClass?: string | null
+}
+
+export async function createAdminVehicle(
+  adminAccessToken: string,
+  body: AdminCreateVehicleBody
+): Promise<{ id: string }> {
+  const res = await authedFetch(adminAccessToken, '/api/admin/vehicles', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(await readError(res, data))
+  return data as { id: string }
 }
